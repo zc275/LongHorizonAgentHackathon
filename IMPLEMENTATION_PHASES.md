@@ -12,6 +12,7 @@ Target: a polished, complete mock-driven hackathon demo. Preserve the determinis
 - [x] Phase 6 — Video and frame pipeline
 - [x] Phase 7 — Verification and demo hardening
 - [x] Phase 8 — Nimble alert research and parent messaging
+- [x] Phase 9 — Tinybird state-change telemetry
 - [ ] Stretch — External integrations
 
 ## Phase 1 — Application scaffold
@@ -136,11 +137,11 @@ Status: Complete
 
 ## Stretch integrations
 
-Status: Deferred until the complete mock demo is stable
+Status: Optional integrations deferred; Nimble and Tinybird are now implemented.
 
 - [ ] Implement `LiquidVisionProvider`
 - [ ] Add real extracted-frame inference
-- [ ] Add optional Tinybird telemetry
+- [x] Phase 9 — Tinybird state-change telemetry
 - [ ] Add an optional model-generated explanation endpoint
 
 ## MVP cut line
@@ -155,4 +156,14 @@ The demo is ready when it runs without credentials and demonstrates:
 - [x] Working-state size remaining roughly bounded
 - [x] Invalid provider output being rejected safely
 
-External vision inference, Tinybird, and generated explanations remain optional.
+External vision inference and generated explanations remain optional. SQLite remains authoritative for canonical state and restart recovery; Tinybird receives the asynchronous analytics mirror.
+
+## Phase 9 — Tinybird state-change telemetry
+
+Status: Code implemented; first live write was rejected with HTTP 403, so workspace ingestion is not yet verified. The data source and append permission/region need to be confirmed.
+
+- [x] Read the append token from `TINYBIRD_TOKEN` or the existing `TINY_BIRD_API` variable
+- [x] Send observation-processing and accepted-mutation events asynchronously
+- [x] Include session, event, video-time, frame, situation, state-version, provider, latency, and working-state-size fields
+- [x] Keep Tinybird delivery failures out of monitoring and expose delivery status in the dashboard
+- [x] Add the versioned data-source schema under `tinybird/datasources/`

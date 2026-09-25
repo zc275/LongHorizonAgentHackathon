@@ -28,7 +28,8 @@ Optional configuration:
 
 - `PORT`: API port, defaults to `3001`.
 - `DATABASE_PATH`: SQLite file location, defaults to `data/nightwatch.sqlite`.
-- `NIMBLE_API_KEY`: enables live, source-linked safety research when a confirmed alert fires. Copy `.env.example` to `.env` and add the key; it is only read by the API and `.env` is ignored by Git.
+- `NIMBLE_API_KEY` (or `NIMBLE_API`): enables live, source-linked safety research when a confirmed alert fires. The key is only read by the API and `.env` is ignored by Git.
+- `TINYBIRD_TOKEN` (or the existing `TINY_BIRD_API`): sends observation and accepted-mutation telemetry to Tinybird asynchronously. The data source must first be deployed; see [TINYBIRD_INTEGRATION.md](./TINYBIRD_INTEGRATION.md). Set `TINYBIRD_API_URL` for a non-default workspace region if needed.
 
 The Nimble flow and its safety boundaries are documented in [NIMBLE_INTEGRATION.md](./NIMBLE_INTEGRATION.md).
 

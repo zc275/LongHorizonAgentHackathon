@@ -14,7 +14,7 @@ flowchart LR
 
 When `ALERT_EMITTED` appears, `SessionRuntime` immediately creates an in-app parent notification. `NimbleSafetyResearchProvider` searches only `healthychildren.org` and `cpsc.gov`, requests up to three lightweight results, and attaches the returned summary and links to that notification. The query and provider are server-side, and the API key never reaches the browser.
 
-If `NIMBLE_API_KEY` is absent, the same flow uses a labeled `demo_fallback` provider with preselected links. If a configured live lookup fails, the parent message still tells the parent to check the nursery and reports that research was unavailable.
+If `NIMBLE_API_KEY` (or the existing `NIMBLE_API` alias) is absent, the same flow uses a labeled `demo_fallback` provider with preselected links. If a configured live lookup fails, the parent message still tells the parent to check the nursery and reports that research was unavailable.
 
 ## Local setup
 

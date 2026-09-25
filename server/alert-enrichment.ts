@@ -76,6 +76,6 @@ export class NimbleSafetyResearchProvider implements AlertEnricher {
 }
 
 export function createAlertEnricher(): AlertEnricher {
-  const apiKey = process.env.NIMBLE_API_KEY?.trim();
+  const apiKey = (process.env.NIMBLE_API_KEY ?? process.env.NIMBLE_API)?.trim();
   return apiKey ? new NimbleSafetyResearchProvider(apiKey) : new DemoSafetyResearchProvider();
 }
