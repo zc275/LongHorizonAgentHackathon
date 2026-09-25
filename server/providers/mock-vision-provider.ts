@@ -15,6 +15,7 @@ function loadFixture(fixtureUrl: URL): CandidateObservation[] {
 export class MockVisionProvider implements VisualObservationProvider {
   readonly name = "mock";
   private readonly observations: CandidateObservation[];
+  private temporaryOcclusion = false;
 
   constructor(fixtureUrl: URL = defaultFixtureUrl) {
     this.observations = loadFixture(fixtureUrl);
@@ -26,10 +27,30 @@ export class MockVisionProvider implements VisualObservationProvider {
       .find((item) => item.observed_at_seconds <= frame.videoTimestamp)
       ?? this.observations[0];
 
+    if (this.temporaryOcclusion) {
+      return {
+        frame_id: frame.frameId,
+        observed_at_seconds: frame.videoTimestamp,
+        camera_view: "occluded",
+        children_visible: "unknown",
+        children_in_cribs: "unknown",
+        children_outside_cribs: "unknown",
+        caregiver_visible: "unknown",
+        activity_level: "unknown",
+        pillows_on_floor: "unknown",
+        uncertainties: ["Temporary camera occlusion enabled in demo controls."],
+        short_description: "The room cannot be assessed because the camera is temporarily occluded."
+      };
+    }
+
     return {
       ...structuredClone(template),
       frame_id: frame.frameId,
       observed_at_seconds: frame.videoTimestamp
     };
+  }
+
+  setTemporaryOcclusion(enabled: boolean): void {
+    this.temporaryOcclusion = enabled;
   }
 }

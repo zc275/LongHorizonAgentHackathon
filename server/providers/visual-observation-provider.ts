@@ -9,4 +9,5 @@ export interface FrameSample {
 export interface VisualObservationProvider {
   readonly name: string;
   observe(frame: FrameSample): Promise<CandidateObservation>;
+  setTemporaryOcclusion?(enabled: boolean): void;
 }

@@ -10,11 +10,14 @@
     "build": "tsc -b && vite build",
     "start": "tsx server/index.ts",
     "typecheck": "tsc -b",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "verify:demo": "tsx scripts/verify-demo.ts"
   },
   "dependencies": {
+    "@nimble-way/nimble-js": "^1.5.0",
     "@vitejs/plugin-react": "latest",
     "better-sqlite3": "latest",
+    "dotenv": "^18.0.4",
     "express": "latest",
     "react": "latest",
     "react-dom": "latest",

@@ -1,12 +1,40 @@
 import { EventEmitter } from "node:events";
-import type { CandidateObservation, StateMutation } from "../shared/domain.js";
-import type { PlaybackStatus, RuntimeSnapshot, TimelineEvent } from "../shared/api.js";
+import type { CandidateObservation, Situation, StateMutation } from "../shared/domain.js";
+import type { ParentNotification, PlaybackStatus, RuntimeSnapshot, TimelineEvent } from "../shared/api.js";
 import {
   createMonitoringState,
   processObservation,
+  withWorkingStateBytes,
   type MonitoringEngineState
 } from "./monitoring-engine.js";
 import type { FrameSample, VisualObservationProvider } from "./providers/visual-observation-provider.js";
+import type { AlertEnricher } from "./alert-enrichment.js";
+
+export interface StoredRuntime {
+  state: MonitoringEngineState;
+  events: TimelineEvent[];
+  currentTime: number;
+}
+
+export interface RuntimePersistence {
+  createSession(sessionId: string, provider: string): void;
+  recordSample(
+    sessionId: string,
+    provider: string,
+    observation: CandidateObservation,
+    mutations: StateMutation[],
+    state: MonitoringEngineState,
+    events: TimelineEvent[]
+  ): void;
+  recordRestart(
+    sessionId: string,
+    mutations: StateMutation[],
+    state: MonitoringEngineState,
+    events: TimelineEvent[]
+  ): void;
+  loadSession(sessionId: string): StoredRuntime | null;
+  clearSessionData(sessionId: string): void;
+}
 
 export class SessionRuntime extends EventEmitter {
   private state: MonitoringEngineState;
@@ -21,15 +49,21 @@ export class SessionRuntime extends EventEmitter {
   private playStartedAtVideoTime = 0;
   private processing = false;
   private pendingTimestamp: number | null = null;
+  private manualOcclusion = false;
+  private parentNotifications: ParentNotification[] = [];
+  private notificationGeneration = 0;
 
   constructor(
     readonly id: string,
     private readonly provider: VisualObservationProvider,
     readonly sampleInterval = 2,
-    readonly duration = 100
+    readonly duration = 100,
+    private readonly persistence?: RuntimePersistence,
+    private readonly alertEnricher?: AlertEnricher
   ) {
     super();
     this.state = createMonitoringState(id);
+    this.persistence?.createSession(id, provider.name);
   }
 
   snapshot(): RuntimeSnapshot {
@@ -41,10 +75,15 @@ export class SessionRuntime extends EventEmitter {
         speed: this.speed,
         duration: this.duration,
         sample_interval: this.sampleInterval,
-        provider: this.provider.name
+        provider: this.provider.name,
+        manual_occlusion: this.manualOcclusion
       },
       latest_observation: this.latestObservation,
-      latest_mutations: this.latestMutations
+      latest_mutations: this.latestMutations,
+      parent_notifications: this.parentNotifications,
+      integrations: {
+        nimble: { mode: this.alertEnricher?.mode ?? "demo_fallback" }
+      }
     };
   }
 
@@ -75,6 +114,10 @@ export class SessionRuntime extends EventEmitter {
           frame_id: mutation.type === "ALERT_EMITTED" ? null : observation.frame_id,
           mutation
         });
+      }
+      this.persistence?.recordSample(this.id, this.provider.name, observation, result.mutations, this.state, this.events);
+      for (const mutation of result.mutations) {
+        if (mutation.type === "ALERT_EMITTED") this.beginParentNotification(mutation.situationId, timestamp);
       }
       this.emit("update", this.snapshot());
     } finally {
@@ -134,19 +177,93 @@ export class SessionRuntime extends EventEmitter {
     this.emit("update", this.snapshot());
   }
 
+  setTemporaryOcclusion(enabled: boolean): void {
+    if (!this.provider.setTemporaryOcclusion) throw new Error("The active provider does not support demo occlusion");
+    this.provider.setTemporaryOcclusion(enabled);
+    this.manualOcclusion = enabled;
+    this.emit("update", this.snapshot());
+  }
+
+  simulateRestart(): void {
+    this.stopTimer();
+    this.manualOcclusion = false;
+    this.provider.setTemporaryOcclusion?.(false);
+    const restored = this.persistence?.loadSession(this.id);
+    if (!restored) throw new Error("No durable state is available for this session");
+
+    const timestamp = restored.currentTime;
+    const reason = "Process restarted; waiting for fresh confirmed observations";
+    const situationMutations: StateMutation[] = [];
+    const situations = restored.state.situations.map((situation) => {
+      if (situation.status === "resolved" || situation.status === "uncertain") return situation;
+      const updated: Situation = {
+        ...situation,
+        status: "uncertain",
+        updated_at: timestamp,
+        uncertainty_started_at: timestamp
+      };
+      situationMutations.push({
+        type: "SITUATION_UPDATED",
+        situationId: situation.id,
+        patch: updated,
+        evidenceFrameIds: []
+      });
+      return updated;
+    });
+    const mutations: StateMutation[] = [
+      { type: "MONITORING_UNCERTAIN", reason, evidenceFrameIds: [] },
+      ...situationMutations
+    ];
+    this.state = withWorkingStateBytes({
+      ...restored.state,
+      state_version: restored.state.state_version + mutations.length,
+      room: {
+        ...restored.state.room,
+        camera_view: "unknown",
+        stale: true,
+        uncertainties: [reason]
+      },
+      situations,
+      provisional: null,
+      metrics: {
+        ...restored.state.metrics,
+        mutations_accepted: restored.state.metrics.mutations_accepted + mutations.length
+      }
+    });
+    this.events = [...restored.events];
+    this.latestObservation = null;
+    this.latestMutations = mutations;
+    this.currentTime = timestamp;
+    this.status = "paused";
+    const restartEvents = mutations.map((mutation, index): TimelineEvent => ({
+      id: `event_${this.events.length + index + 1}`,
+      video_timestamp: timestamp,
+      frame_id: null,
+      mutation
+    }));
+    this.events.push(...restartEvents);
+    this.persistence?.recordRestart(this.id, mutations, this.state, restartEvents);
+    this.emit("update", this.snapshot());
+  }
+
   dispose(): void {
     this.stopTimer();
     this.removeAllListeners();
   }
 
   private resetState(): void {
+    this.persistence?.clearSessionData(this.id);
     this.state = createMonitoringState(this.id);
     this.events = [];
     this.latestObservation = null;
     this.latestMutations = [];
+    this.parentNotifications = [];
+    this.notificationGeneration += 1;
     this.status = "idle";
     this.currentTime = 0;
     this.pendingTimestamp = null;
+    this.manualOcclusion = false;
+    this.provider.setTemporaryOcclusion?.(false);
   }
 
   private frameAt(timestamp: number): FrameSample {
@@ -156,6 +273,47 @@ export class SessionRuntime extends EventEmitter {
       videoTimestamp: timestamp,
       evidenceThumbnailUrl: `/demo.mp4#t=${timestamp}`
     };
+  }
+
+  private beginParentNotification(situationId: string, videoTimestamp: number): void {
+    if (!this.alertEnricher || this.parentNotifications.some((item) => item.situation_id === situationId)) return;
+    const situation = this.state.situations.find((item) => item.id === situationId);
+    if (!situation) return;
+    const generation = this.notificationGeneration;
+    const pending: ParentNotification = {
+      id: `notification_${this.parentNotifications.length + 1}`,
+      situation_id: situationId,
+      created_at_video_seconds: videoTimestamp,
+      status: "researching",
+      channel: "in_app_demo",
+      research_provider: this.alertEnricher.mode,
+      subject: "Nightwatch: check the nursery",
+      message: "A concerning situation was confirmed. Preparing a parent message and safety resources…",
+      research_summary: null,
+      sources: []
+    };
+    this.parentNotifications = [pending, ...this.parentNotifications];
+
+    void this.alertEnricher.enrich({ sessionId: this.id, situation, videoTimestamp })
+      .then((enrichment) => {
+        if (generation !== this.notificationGeneration) return;
+        this.replaceNotification(pending.id, { ...pending, ...enrichment, status: "sent" });
+      })
+      .catch(() => {
+        if (generation !== this.notificationGeneration) return;
+        this.replaceNotification(pending.id, {
+          ...pending,
+          status: "sent",
+          message: `Nightwatch confirmed a concerning nursery situation at ${Math.round(videoTimestamp)}s. Please check the nursery now. Safety research was temporarily unavailable.`,
+          research_summary: "The parent alert was delivered, but the live Nimble lookup could not complete.",
+          sources: []
+        });
+      });
+  }
+
+  private replaceNotification(id: string, replacement: ParentNotification): void {
+    this.parentNotifications = this.parentNotifications.map((item) => item.id === id ? replacement : item);
+    this.emit("update", this.snapshot());
   }
 
   private syncCurrentTime(): void {

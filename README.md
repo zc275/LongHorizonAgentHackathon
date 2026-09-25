@@ -3,6 +3,7 @@
 A compact, stateful activity journal for long-running nursery video. The application is a hackathon demonstration and is not a certified safety or medical device.
 
 Implementation progress is tracked in [IMPLEMENTATION_PHASES.md](./IMPLEMENTATION_PHASES.md).
+The presentation flow is documented in [DEMO_SCRIPT.md](./DEMO_SCRIPT.md).
 
 ## Development
 
@@ -27,6 +28,9 @@ Optional configuration:
 
 - `PORT`: API port, defaults to `3001`.
 - `DATABASE_PATH`: SQLite file location, defaults to `data/nightwatch.sqlite`.
+- `NIMBLE_API_KEY`: enables live, source-linked safety research when a confirmed alert fires. Copy `.env.example` to `.env` and add the key; it is only read by the API and `.env` is ignored by Git.
+
+The Nimble flow and its safety boundaries are documented in [NIMBLE_INTEGRATION.md](./NIMBLE_INTEGRATION.md).
 
 ## Demo API
 
@@ -36,9 +40,12 @@ Create a mock session with `POST /api/sessions`, then control it with:
 - `POST /api/sessions/:id/pause`
 - `POST /api/sessions/:id/seek` with `{ "seconds": 56 }`
 - `POST /api/sessions/:id/reset`
+- `POST /api/sessions/:id/restart` to rebuild working state from SQLite
+- `POST /api/sessions/:id/occlusion` with `{ "enabled": true }` for the demo override
 - `GET /api/sessions/:id/state`
 - `GET /api/sessions/:id/events`
 - `GET /api/sessions/:id/metrics`
+- `GET /api/sessions/:id/notifications`
 - `GET /api/sessions/:id/stream` for server-sent updates
 
 ## Other commands
@@ -47,4 +54,5 @@ Create a mock session with `POST /api/sessions`, then control it with:
 npm run typecheck
 npm run build
 npm test
+npm run verify:demo
 ```

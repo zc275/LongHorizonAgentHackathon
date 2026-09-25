@@ -8,9 +8,10 @@ Target: a polished, complete mock-driven hackathon demo. Preserve the determinis
 - [x] Phase 2 — Core monitoring engine
 - [x] Phase 3 — Deterministic demo runner
 - [x] Phase 4 — Monitoring dashboard
-- [ ] Phase 5 — Persistence and restart recovery
-- [ ] Phase 6 — Video and frame pipeline
-- [ ] Phase 7 — Verification and demo hardening
+- [x] Phase 5 — Persistence and restart recovery
+- [x] Phase 6 — Video and frame pipeline
+- [x] Phase 7 — Verification and demo hardening
+- [x] Phase 8 — Nimble alert research and parent messaging
 - [ ] Stretch — External integrations
 
 ## Phase 1 — Application scaffold
@@ -77,47 +78,61 @@ Original time box: 50–80 minutes
 
 ## Phase 5 — Persistence and restart recovery
 
-Status: Not started  
+Status: Complete  
 Original time box: 80–95 minutes
 
-- [ ] Create the full SQLite schema
-- [ ] Persist observations and accepted mutations
-- [ ] Persist canonical snapshots and situations
-- [ ] Persist evidence metadata and processing metrics
-- [ ] Reconstruct state from the append-only event log
-- [ ] Restore the latest snapshot as stale after restart
-- [ ] Require fresh confirmed observations before new alerts
-- [ ] Add the `Simulate restart` control
+- [x] Create the full SQLite schema
+- [x] Persist observations and accepted mutations
+- [x] Persist canonical snapshots and situations
+- [x] Persist evidence metadata and processing metrics
+- [x] Reconstruct state from the append-only event log
+- [x] Restore the latest snapshot as stale after restart
+- [x] Require fresh confirmed observations before new alerts
+- [x] Add the `Simulate restart` control
 
 ## Phase 6 — Video and frame pipeline
 
-Status: In progress  
+Status: Complete  
 Original time box: 95–105 minutes
 
 - [x] Download the configured Global News demo to `public/demo.mp4`
 - [x] Verify that the frontend serves the MP4
-- [ ] Add local MP4 upload and object-URL playback
-- [ ] Select the bundled demo video when present
-- [ ] Synchronize sampling to video timestamps
-- [ ] Display the latest processed-frame position
-- [ ] Capture evidence thumbnails for meaningful transitions
-- [ ] Add the temporary camera-occlusion control
+- [x] Add local MP4 upload and object-URL playback
+- [x] Select the bundled demo video when present
+- [x] Synchronize sampling to video timestamps
+- [x] Display the latest processed-frame position
+- [x] Capture evidence thumbnails for meaningful transitions
+- [x] Add the temporary camera-occlusion control
 
 ## Phase 7 — Verification and demo hardening
 
-Status: Not started  
+Status: Complete  
 Original time box: 105–120 minutes
 
-- [ ] Run the complete mock demo from 0–100 seconds
-- [ ] Verify initial open, alert, and resolution
-- [ ] Verify linked recurrence
-- [ ] Verify uncertainty and timer pause
-- [ ] Verify exactly one alert per situation
-- [ ] Verify restart recovery
-- [ ] Verify bounded working state as observations increase
-- [ ] Check responsive layout and demo readability
-- [ ] Document the three-minute demo flow
-- [ ] Confirm clean install, type-check, tests, and production build
+- [x] Run the complete mock demo from 0–100 seconds
+- [x] Verify initial open, alert, and resolution
+- [x] Verify linked recurrence
+- [x] Verify uncertainty and timer pause
+- [x] Verify exactly one alert per situation
+- [x] Verify restart recovery
+- [x] Verify bounded working state as observations increase
+- [x] Check responsive layout and demo readability
+- [x] Document the three-minute demo flow
+- [x] Confirm clean install, type-check, tests, and production build
+
+## Phase 8 — Nimble alert research and parent messaging
+
+Status: Complete
+
+- [x] Keep deterministic alert rules authoritative
+- [x] Trigger nonblocking research once per concerning situation
+- [x] Integrate the official Nimble Node SDK through `NIMBLE_API_KEY`
+- [x] Restrict research to vetted safety domains
+- [x] Create an in-app parent-message outbox
+- [x] Show live research status, source links, and provider provenance
+- [x] Keep parent delivery independent of research availability
+- [x] Provide a clearly labeled credential-free demo fallback
+- [x] Document the architecture and setup
 
 ## Stretch integrations
 
@@ -132,12 +147,12 @@ Status: Deferred until the complete mock demo is stable
 
 The demo is ready when it runs without credentials and demonstrates:
 
-- [ ] MP4 playback with timestamp-driven observations
-- [ ] Many sampled frames collapsing into a few meaningful mutations
-- [ ] One complete situation lifecycle and one recurrence
-- [ ] Occlusion producing uncertainty without resolution
-- [ ] Durable restart recovery
-- [ ] Working-state size remaining roughly bounded
-- [ ] Invalid provider output being rejected safely
+- [x] MP4 playback with timestamp-driven observations
+- [x] Many sampled frames collapsing into a few meaningful mutations
+- [x] One complete situation lifecycle and one recurrence
+- [x] Occlusion producing uncertainty without resolution
+- [x] Durable restart recovery
+- [x] Working-state size remaining roughly bounded
+- [x] Invalid provider output being rejected safely
 
 External vision inference, Tinybird, and generated explanations remain optional.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { RuntimeSnapshot, TimelineEvent } from "../shared/api";
+import type { ParentNotification, RuntimeSnapshot, TimelineEvent } from "../shared/api";
 import type { Situation, StateMutation } from "../shared/domain";
 
 const DEMO_VIDEO = "/demo.mp4";
@@ -26,6 +26,10 @@ function humanize(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function displayCount(value: number | "unknown" | undefined): number | string {
+  return typeof value === "number" ? value : "—";
+}
+
 function mutationLabel(mutation: StateMutation): { title: string; detail: string } {
   switch (mutation.type) {
     case "ROOM_STATE_CHANGED": return { title: "Room state changed", detail: "Confirmed evidence updated the canonical state." };
@@ -48,11 +52,11 @@ function Icon({ name }: { name: "play" | "pause" | "reset" | "activity" | "clock
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
-function EvidenceThumbnail({ timestamp }: { timestamp: number }) {
+function EvidenceThumbnail({ timestamp, source }: { timestamp: number; source: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   return (
     <div className="evidence-thumb">
-      <video ref={videoRef} src={`${DEMO_VIDEO}#t=${timestamp}`} muted preload="metadata"
+      <video ref={videoRef} src={`${source}#t=${timestamp}`} muted preload="metadata"
         onLoadedMetadata={() => { if (videoRef.current) videoRef.current.currentTime = timestamp; }} />
       <span>{formatTime(timestamp)}</span>
     </div>
@@ -81,8 +85,28 @@ function SituationCard({ situation, currentTime }: { situation: Situation; curre
   );
 }
 
+function ParentNotificationCard({ notification }: { notification: ParentNotification }) {
+  const live = notification.research_provider === "nimble_live";
+  return (
+    <article className="notification-card">
+      <div className="notification-head">
+        <div><p>{notification.subject}</p><span className="mono">IN-APP PARENT MESSAGE · {formatTime(notification.created_at_video_seconds)}</span></div>
+        <span className={`vendor-pill ${live ? "live" : "fallback"}`}>{live ? "NIMBLE LIVE" : "DEMO SOURCES"}</span>
+      </div>
+      <p className="notification-message">{notification.message}</p>
+      {notification.status === "researching" && <div className="researching"><i />Nimble research in progress…</div>}
+      {notification.research_summary && <p className="research-summary">{notification.research_summary}</p>}
+      {notification.sources.length > 0 && <div className="source-links">{notification.sources.map((source) => (
+        <a href={source.url} target="_blank" rel="noreferrer" key={source.url} title={source.snippet}>{source.title}<span>↗</span></a>
+      ))}</div>}
+    </article>
+  );
+}
+
 export function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [snapshot, setSnapshot] = useState<RuntimeSnapshot | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -90,6 +114,8 @@ export function App() {
   const [speed, setSpeed] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [videoSource, setVideoSource] = useState(DEMO_VIDEO);
+  const [sourceLabel, setSourceLabel] = useState("Bundled demo");
 
   const refreshEvents = useCallback(async (sessionId: string) => {
     const result = await api<{ events: TimelineEvent[] }>(`/api/sessions/${sessionId}/events`);
@@ -107,12 +133,21 @@ export function App() {
         const next = JSON.parse((event as MessageEvent).data) as RuntimeSnapshot;
         setSnapshot(next);
         setConnected(true);
+        const video = videoRef.current;
+        if (video && next.playback.status === "playing" && Math.abs(video.currentTime - next.playback.current_time) > 0.75) {
+          video.currentTime = next.playback.current_time;
+        }
+        if (video && next.playback.status === "complete") video.pause();
         void refreshEvents(next.state.session_id).catch(() => undefined);
       });
       source.onerror = () => setConnected(false);
     }).catch((reason) => setError(reason instanceof Error ? reason.message : "Unable to create demo session"));
     return () => { cancelled = true; eventSourceRef.current?.close(); };
   }, [refreshEvents]);
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+  }, []);
 
   const control = useCallback(async (action: "start" | "pause" | "reset", body?: unknown) => {
     if (!snapshot) return;
@@ -132,8 +167,8 @@ export function App() {
   const hasAlert = openSituations.some((situation) => situation.status === "alerted");
   const room = snapshot?.state.room;
   const metrics = snapshot?.state.metrics;
-  const compression = metrics && metrics.frames_sampled > 0
-    ? Math.max(0, Math.round((1 - metrics.mutations_accepted / metrics.frames_sampled) * 100)) : 0;
+  const compression = metrics && metrics.observations_produced > 0
+    ? Math.round((metrics.repeated_observations_discarded / metrics.observations_produced) * 100) : 0;
   const newestEvents = useMemo(() => [...events].reverse(), [events]);
 
   async function seek(seconds: number) {
@@ -171,6 +206,59 @@ export function App() {
     await control("reset");
   }
 
+  async function simulateRestart() {
+    if (!snapshot) return;
+    videoRef.current?.pause();
+    try {
+      const next = await api<RuntimeSnapshot>(`/api/sessions/${snapshot.state.session_id}/restart`, { method: "POST" });
+      setSnapshot(next);
+      setVideoTime(next.playback.current_time);
+      if (videoRef.current) videoRef.current.currentTime = next.playback.current_time;
+      await refreshEvents(snapshot.state.session_id);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Restart simulation failed");
+    }
+  }
+
+  async function toggleOcclusion() {
+    if (!snapshot) return;
+    try {
+      const next = await api<RuntimeSnapshot>(`/api/sessions/${snapshot.state.session_id}/occlusion`, {
+        method: "POST",
+        body: JSON.stringify({ enabled: !snapshot.playback.manual_occlusion })
+      });
+      setSnapshot(next);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to change camera occlusion");
+    }
+  }
+
+  async function selectVideo(file?: File) {
+    if (!file) return;
+    if (file.type !== "video/mp4" && !file.name.toLowerCase().endsWith(".mp4")) {
+      setError("Choose an MP4 video file.");
+      return;
+    }
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    const objectUrl = URL.createObjectURL(file);
+    objectUrlRef.current = objectUrl;
+    setVideoSource(objectUrl);
+    setSourceLabel(file.name);
+    await reset();
+    requestAnimationFrame(() => videoRef.current?.load());
+  }
+
+  async function selectBundledDemo() {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = null;
+    setVideoSource(DEMO_VIDEO);
+    setSourceLabel("Bundled demo");
+    await reset();
+    requestAnimationFrame(() => videoRef.current?.load());
+  }
+
   function changeSpeed(nextSpeed: number) {
     setSpeed(nextSpeed);
     if (videoRef.current) videoRef.current.playbackRate = nextSpeed;
@@ -183,6 +271,7 @@ export function App() {
         <div className="brand-mark">N</div>
         <div className="brand-copy"><p className="eyebrow">Long-horizon visual agent</p><h1>Nightwatch</h1></div>
         <div className="mode-chip"><span /> Demo mode · Mock vision</div>
+        <div className={`nimble-chip ${snapshot?.integrations.nimble.mode === "nimble_live" ? "live" : ""}`}>NIMBLE · {snapshot?.integrations.nimble.mode === "nimble_live" ? "LIVE" : "READY"}</div>
         <div className={`connection ${connected ? "online" : ""}`}><span className="status-dot" />{connected ? "Pipeline online" : "Connecting"}</div>
       </header>
 
@@ -192,10 +281,24 @@ export function App() {
       <section className="dashboard-grid">
         <div className="primary-column">
           <section className="panel video-panel">
-            <div className="panel-heading"><div><p className="eyebrow">Live source</p><h2>Nursery camera</h2></div><span className="recording"><i /> Processing every 2s</span></div>
+            <div className="panel-heading video-heading">
+              <div><p className="eyebrow">Live source</p><h2>Nursery camera</h2></div>
+              <div className="source-tools">
+                <span className="source-name mono">{sourceLabel}</span>
+                {videoSource !== DEMO_VIDEO && <button onClick={() => void selectBundledDemo()}>Use demo</button>}
+                <button onClick={() => uploadRef.current?.click()}>Choose MP4</button>
+                <button className={snapshot?.playback.manual_occlusion ? "occlusion active" : "occlusion"} onClick={() => void toggleOcclusion()}>{snapshot?.playback.manual_occlusion ? "View blocked" : "Occlude"}</button>
+                <input ref={uploadRef} type="file" accept="video/mp4,.mp4" hidden onChange={(event) => void selectVideo(event.target.files?.[0])} />
+              </div>
+              <span className="recording"><i /> Processing every 2s</span>
+            </div>
             <div className="video-stage" onClick={() => void togglePlayback()}>
-              <video ref={videoRef} src={DEMO_VIDEO} preload="metadata" playsInline muted
-                onTimeUpdate={(event) => setVideoTime(Math.min(100, event.currentTarget.currentTime))}
+              <video ref={videoRef} src={videoSource} preload="metadata" playsInline muted
+                onTimeUpdate={(event) => {
+                  const current = event.currentTarget.currentTime;
+                  setVideoTime(Math.min(100, current));
+                  if (current >= 100) event.currentTarget.pause();
+                }}
                 onEnded={() => void control("pause")} />
               {!isPlaying && <button className="center-play" aria-label="Play demo"><Icon name="play" /></button>}
               <div className="camera-overlay top-left"><span>CAM 01</span><strong>NURSERY</strong></div>
@@ -224,7 +327,7 @@ export function App() {
               {newestEvents.map((event) => {
                 const label = mutationLabel(event.mutation);
                 return <article className={`event-row ${event.mutation.type.toLowerCase()}`} key={event.id}>
-                  <EvidenceThumbnail timestamp={event.video_timestamp} /><div className="event-line"><i /></div>
+                  <EvidenceThumbnail timestamp={event.video_timestamp} source={videoSource} /><div className="event-line"><i /></div>
                   <div className="event-copy"><div><strong>{label.title}</strong><span className="mono">{event.frame_id ?? "rule engine"}</span></div><p>{label.detail}</p></div>
                   <time className="mono">{formatTime(event.video_timestamp)}</time>
                 </article>;
@@ -237,9 +340,9 @@ export function App() {
           <section className={`panel state-panel ${room?.camera_view !== "usable" ? "uncertain" : ""}`}>
             <div className="panel-heading compact"><div><p className="eyebrow">Canonical state</p><h2>Current room</h2></div><span className={`freshness ${room?.stale ? "stale" : ""}`}><i />{room?.stale ? "Uncertain" : "Fresh"}</span></div>
             <div className="count-grid">
-              <div className="hero-count"><strong>{room?.children_visible ?? "—"}</strong><span>Visible</span></div>
-              <div><strong>{room?.children_in_cribs ?? "—"}</strong><span>In cribs</span></div>
-              <div className={(typeof room?.children_outside_cribs === "number" && room.children_outside_cribs > 0) ? "danger" : ""}><strong>{room?.children_outside_cribs ?? "—"}</strong><span>Outside</span></div>
+              <div className="hero-count"><strong>{displayCount(room?.children_visible)}</strong><span>Visible</span></div>
+              <div><strong>{displayCount(room?.children_in_cribs)}</strong><span>In cribs</span></div>
+              <div className={(typeof room?.children_outside_cribs === "number" && room.children_outside_cribs > 0) ? "danger" : ""}><strong>{displayCount(room?.children_outside_cribs)}</strong><span>Outside</span></div>
             </div>
             <dl className="state-list">
               <div><dt>Activity</dt><dd><span className={`activity-dot ${room?.activity_level}`} />{humanize(String(room?.activity_level ?? "unknown"))}</dd></div>
@@ -259,6 +362,14 @@ export function App() {
             </div>
           </section>
 
+          <section className="panel notifications-panel">
+            <div className="panel-heading compact"><div><p className="eyebrow">Alert action pipeline</p><h2>Parent notifications</h2></div><span className="notification-total mono">{snapshot?.parent_notifications.length ?? 0} MESSAGES</span></div>
+            <div className="notification-stack">
+              {!snapshot?.parent_notifications.length && <div className="notification-empty"><strong>Nimble standing by</strong><p>A confirmed alert triggers vetted safety research and a parent message.</p></div>}
+              {snapshot?.parent_notifications.map((notification) => <ParentNotificationCard key={notification.id} notification={notification} />)}
+            </div>
+          </section>
+
           <section className="panel metrics-panel">
             <div className="panel-heading compact"><div><p className="eyebrow">Context efficiency</p><h2>Compression</h2></div><strong className="compression-score">{compression}%</strong></div>
             <div className="compression-track"><span style={{ width: `${compression}%` }} /></div>
@@ -270,7 +381,18 @@ export function App() {
             <div className="working-size"><span>Serialized working state</span><strong className="mono">{metrics?.working_state_bytes ?? 0} B</strong></div>
           </section>
 
-          <details className="panel developer-panel"><summary><span>Developer diagnostics</span><span className="mono">JSON</span></summary><pre>{JSON.stringify({ observation: snapshot?.latest_observation, mutations: snapshot?.latest_mutations }, null, 2)}</pre></details>
+          <details className="panel developer-panel">
+            <summary><span>Developer diagnostics</span><span className="mono">JSON</span></summary>
+            <div className="developer-actions"><button onClick={() => void simulateRestart()}><Icon name="reset" /> Simulate restart</button><span>Reload durable state and require fresh confirmation.</span></div>
+            <pre>{JSON.stringify({
+              provider: snapshot?.playback.provider,
+              invalid_observations_rejected: snapshot?.state.metrics.invalid_observations_rejected,
+              observation: snapshot?.latest_observation,
+              mutations: snapshot?.latest_mutations,
+              nimble: snapshot?.integrations.nimble,
+              parent_notifications: snapshot?.parent_notifications
+            }, null, 2)}</pre>
+          </details>
         </aside>
       </section>
     </main>

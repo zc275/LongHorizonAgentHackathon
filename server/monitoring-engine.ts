@@ -93,7 +93,7 @@ function publicWorkingState(state: MonitoringEngineState) {
   };
 }
 
-function withWorkingStateBytes(state: MonitoringEngineState): MonitoringEngineState {
+export function withWorkingStateBytes(state: MonitoringEngineState): MonitoringEngineState {
   return {
     ...state,
     metrics: {

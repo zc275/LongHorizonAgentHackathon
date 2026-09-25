@@ -9,6 +9,25 @@ export interface TimelineEvent {
   mutation: StateMutation;
 }
 
+export interface ResearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export interface ParentNotification {
+  id: string;
+  situation_id: string;
+  created_at_video_seconds: number;
+  status: "researching" | "sent" | "failed";
+  channel: "in_app_demo";
+  research_provider: "nimble_live" | "demo_fallback";
+  subject: string;
+  message: string;
+  research_summary: string | null;
+  sources: ResearchSource[];
+}
+
 export interface RuntimeSnapshot {
   state: SessionState & { last_video_timestamp: number | null };
   playback: {
@@ -18,7 +37,12 @@ export interface RuntimeSnapshot {
     duration: number;
     sample_interval: number;
     provider: string;
+    manual_occlusion: boolean;
   };
   latest_observation: CandidateObservation | null;
   latest_mutations: StateMutation[];
+  parent_notifications: ParentNotification[];
+  integrations: {
+    nimble: { mode: ParentNotification["research_provider"] };
+  };
 }

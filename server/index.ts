@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import type { Response } from "express";
@@ -6,6 +7,8 @@ import { databaseHealth } from "./db.js";
 import { MockVisionProvider } from "./providers/mock-vision-provider.js";
 import { SessionRuntime } from "./session-runtime.js";
 import { createManagerRouter } from "./manager-api.js";
+import { SqliteSessionPersistence } from "./persistence.js";
+import { createAlertEnricher } from "./alert-enrichment.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -15,6 +18,8 @@ app.use(express.json({ limit: "2mb" }));
 app.use("/api/manager", createManagerRouter());
 
 const sessions = new Map<string, SessionRuntime>();
+const persistence = new SqliteSessionPersistence();
+const alertEnricher = createAlertEnricher();
 
 function runtimeFor(id: string): SessionRuntime | undefined {
   return sessions.get(id);
@@ -36,7 +41,7 @@ app.get("/api/health", (_request, response) => {
 
 app.post("/api/sessions", (_request, response) => {
   const id = randomUUID();
-  const runtime = new SessionRuntime(id, new MockVisionProvider());
+  const runtime = new SessionRuntime(id, new MockVisionProvider(), 2, 100, persistence, alertEnricher);
   sessions.set(id, runtime);
   response.status(201).json(runtime.snapshot());
 });
@@ -58,6 +63,12 @@ app.get("/api/sessions/:id/metrics", (request, response) => {
   const runtime = runtimeFor(request.params.id);
   if (!runtime) return response.status(404).json({ error: "Session not found" });
   return response.json(runtime.snapshot().state.metrics);
+});
+
+app.get("/api/sessions/:id/notifications", (request, response) => {
+  const runtime = runtimeFor(request.params.id);
+  if (!runtime) return response.status(404).json({ error: "Session not found" });
+  return response.json({ notifications: runtime.snapshot().parent_notifications });
 });
 
 app.post("/api/sessions/:id/start", (request, response) => {
@@ -94,6 +105,31 @@ app.post("/api/sessions/:id/reset", (request, response) => {
   if (!runtime) return response.status(404).json({ error: "Session not found" });
   runtime.reset();
   return response.json(runtime.snapshot());
+});
+
+app.post("/api/sessions/:id/restart", (request, response) => {
+  const runtime = runtimeFor(request.params.id);
+  if (!runtime) return response.status(404).json({ error: "Session not found" });
+  try {
+    runtime.simulateRestart();
+    return response.json(runtime.snapshot());
+  } catch (error) {
+    return response.status(409).json({ error: error instanceof Error ? error.message : "Unable to restore session" });
+  }
+});
+
+app.post("/api/sessions/:id/occlusion", (request, response) => {
+  const runtime = runtimeFor(request.params.id);
+  if (!runtime) return response.status(404).json({ error: "Session not found" });
+  if (typeof request.body?.enabled !== "boolean") {
+    return response.status(400).json({ error: "enabled must be a boolean" });
+  }
+  try {
+    runtime.setTemporaryOcclusion(request.body.enabled);
+    return response.json(runtime.snapshot());
+  } catch (error) {
+    return response.status(400).json({ error: error instanceof Error ? error.message : "Unable to change occlusion" });
+  }
 });
 
 app.get("/api/sessions/:id/stream", (request, response) => {
