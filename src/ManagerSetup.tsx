@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { demoSeed } from "../shared/demo-seed";
 
 export type ProviderId = "liquid" | "nimble" | "rawtree";
@@ -12,10 +12,10 @@ export async function managerApi<T>(path: string, body?: unknown): Promise<T> {
 
 const providers: { id: ProviderId; name: string; role: string; steps: string[]; href: string; account?: string }[] = [
   { id: "liquid", name: "Liquid AI", role: "Observe on your own computer", steps: ["Install llama.cpp and download the LFM2.5-VL-3B GGUF vision model with its matching vision projector.", "Start llama-server on port 8080 with the model and projector. Paste its local /v1 endpoint below.", "Test the model endpoint. This checks the model list; it does not switch the video from sample observations."], href: "https://docs.liquid.ai/deployment/on-device/llama-cpp" },
-  { id: "nimble", name: "Nimble", role: "Find the missing information", steps: ["Open your Nimble account, then Settings → API Keys. Create or copy your key.", "Paste the key below. The test makes one small public search and may use account credits.", "Use Nimble for product documentation and sources. The current camera workflow does not yet trigger searches."], href: "https://docs.nimbleway.com/nimble-sdk/getting-started/quickstart", account: "https://online.nimbleway.com" },
+  { id: "nimble", name: "Nimble", role: "Find the missing information", steps: ["Open your Nimble account, then Settings → API Keys. Create or copy your key.", "Paste the key below. The test makes one small public search and may use account credits.", "Use Nimble for product documentation and sources. Confirmed alerts in the sample workflow trigger a search and show sources in Activity."], href: "https://docs.nimbleway.com/nimble-sdk/getting-started/quickstart", account: "https://online.nimbleway.com" },
   { id: "rawtree", name: "RawTree", role: "Keep the context between sessions", steps: ["Create a database named family_assistant_demo in your RawTree account.", "Create a read_write API key and enter the database name below. Keys are cluster-wide; the app selects this database explicitly.", "Test read access, load the sample household, then read it back in Demo assets."], href: "https://rawtree.com/docs/quickstart/api", account: "https://rawtree.com" }
 ];
-export function ConnectionsSettings({ onStates, onRequest, focus, onShoppingPreview }: { onStates: (states: ConnectionStates) => void; onRequest: (provider: string | null) => void; focus: { id: string } | null; onShoppingPreview: () => void }) {
+export function ConnectionsSettings({ onStates, onRequest, focus, onShoppingPreview, cameraSettings }: { onStates: (states: ConnectionStates) => void; onRequest: (provider: string | null) => void; focus: { id: string } | null; onShoppingPreview: () => void; cameraSettings: (expanded: boolean, toggle: () => void) => ReactNode }) {
   const [states, setStates] = useState<ConnectionStates>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string>>({ liquid: "http://localhost:8080/v1", database: "family_assistant_demo" });
@@ -40,6 +40,7 @@ export function ConnectionsSettings({ onStates, onRequest, focus, onShoppingPrev
     }
   }
   return <>
+    {cameraSettings(expanded === "camera", () => setExpanded(expanded === "camera" ? null : "camera"))}
     <p className="draft-notice">Keys stay on this computer until the server restarts.</p>
     {providers.map(provider => <section className="setup-provider" key={provider.id}>
       <button className="provider-disclosure" aria-expanded={expanded === provider.id} onClick={() => setExpanded(expanded === provider.id ? null : provider.id)}><span><strong>{provider.name}</strong><small>{provider.role}</small></span><span className={states[provider.id]?.verifiedAt ? "verified-label" : ""}>{busy === provider.id ? "Connecting…" : states[provider.id]?.verifiedAt ? "Test passed" : "Set up"}<span className="disclosure-chevron">{expanded === provider.id ? "−" : "+"}</span></span></button>

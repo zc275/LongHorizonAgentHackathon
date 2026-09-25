@@ -56,3 +56,7 @@ npm run build
 npm test
 npm run verify:demo
 ```
+
+### Unified manager
+
+Open `http://localhost:5173/` (or `/manager.html`) for the integrated light manager. The original technical monitor is at `/monitor.html`. The manager includes backend alert research, expandable room context, session recovery checks, and **Camera → Connect phone**. See [MANAGER_SETUP.md](MANAGER_SETUP.md) for pairing requirements and limitations.

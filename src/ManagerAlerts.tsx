@@ -1,0 +1,14 @@
+import type { ParentNotification } from "../shared/api";
+
+function sourceUrl(url: string) {
+  try { const parsed = new URL(url); return parsed.protocol === "https:" ? parsed.href : null; } catch { return null; }
+}
+export function ManagerAlerts({ notifications }: { notifications: ParentNotification[] }) {
+  return <>{notifications.slice(0, 2).map(notification => <details className="manager-alert" key={notification.id}>
+    <summary><span className="event-meta"><span>{notification.status === "researching" ? "Preparing alert" : "In-app alert"}</span><span>{notification.research_provider === "nimble_live" ? "Nimble" : "Saved sources"}</span></span><strong>Check the nursery</strong></summary>
+    <p>{notification.message}</p>
+    {notification.research_summary && <p>{notification.research_summary}</p>}
+    <div className="alert-sources">{notification.sources.map(source => { const url = sourceUrl(source.url); return url ? <a key={url} href={url} target="_blank" rel="noreferrer">{source.title} ↗</a> : null; })}</div>
+    <small>Shown in this manager. No text message or phone call was sent.</small>
+  </details>)}</>;
+}

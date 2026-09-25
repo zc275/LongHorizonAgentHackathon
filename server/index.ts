@@ -8,18 +8,47 @@ import { MockVisionProvider } from "./providers/mock-vision-provider.js";
 import { SessionRuntime } from "./session-runtime.js";
 import { createManagerRouter } from "./manager-api.js";
 import { SqliteSessionPersistence } from "./persistence.js";
-import { createAlertEnricher } from "./alert-enrichment.js";
+import { createAlertEnricher, NimbleSafetyResearchProvider, type AlertEnricher } from "./alert-enrichment.js";
+import { createCameraService } from "./camera-api.js";
+import { createCameraTunnel } from "./camera-tunnel.js";
+import { resolve } from "node:path";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
+const cameraPort = Number(process.env.CAMERA_PORT ?? 3002);
+const cameraTunnel = createCameraTunnel(cameraPort);
+const camera = createCameraService(() => cameraTunnel.origin());
+let activeEnricher = createAlertEnricher();
+const alertEnricher: AlertEnricher = {
+  get mode() { return activeEnricher.mode; },
+  enrich(context) { return activeEnricher.enrich(context); }
+};
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "2mb" }));
-app.use("/api/manager", createManagerRouter());
+app.use("/api/manager/camera", camera.admin);
+app.use("/api/camera", camera.transport);
+app.use("/api/manager", createManagerRouter(undefined, key => { activeEnricher = key ? new NimbleSafetyResearchProvider(key) : createAlertEnricher(); }));
+
+// The phone gateway has no manager, session, credential, or database endpoints.
+const phoneGateway = express();
+phoneGateway.disable("x-powered-by");
+phoneGateway.use((_request, response, next) => {
+  response.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff", "Permissions-Policy": "camera=(self), microphone=()", "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'" });
+  next();
+});
+phoneGateway.use("/api/camera", camera.transport);
+phoneGateway.get("/phone", (_request, response) => response.sendFile(resolve("dist/phone.html")));
+phoneGateway.use("/assets", express.static(resolve("dist/assets"), { index: false, dotfiles: "deny" }));
+phoneGateway.use((_request, response) => response.status(404).json({ error: "Not found" }));
+const phoneServer = phoneGateway.listen(cameraPort, "127.0.0.1");
+function closeCamera() { cameraTunnel.stop(); camera.dispose(); phoneServer.close(); }
+process.once("exit", closeCamera);
+process.once("SIGTERM", () => { closeCamera(); process.exit(0); });
+process.once("SIGINT", () => { closeCamera(); process.exit(0); });
 
 const sessions = new Map<string, SessionRuntime>();
 const persistence = new SqliteSessionPersistence();
-const alertEnricher = createAlertEnricher();
 
 function runtimeFor(id: string): SessionRuntime | undefined {
   return sessions.get(id);

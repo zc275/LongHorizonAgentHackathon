@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { demoDataset, demoSeed } from "../shared/demo-seed.js";
 
@@ -11,25 +11,29 @@ const configSchema = z.object({
   database: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,62}$/).optional()
 }).strict();
 interface Config { apiKey?: string; endpoint?: string; database?: string; verifiedAt?: string; message?: string }
+export const requireLocalManager: RequestHandler = (request, response, next) => {
+  response.setHeader("Cache-Control", "no-store");
+  const host = request.headers.host ?? "";
+  const origin = request.headers.origin;
+  const localHost = /^(localhost|127\.0\.0\.1|\[::1\]):(3001|5173)$/.test(host);
+  const localOrigin = !origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):(3001|5173)$/.test(origin);
+  if (!localHost || !localOrigin || request.headers["x-nightwatch-local"] !== "1") {
+    response.status(403).json({ error: "Open Settings from the local Nightwatch app." });
+    return;
+  }
+  next();
+};
 export function localModelEndpoint(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname.replace(/\/$/, "") !== "/v1") throw new Error("Use a local model endpoint such as http://localhost:8080/v1.");
   return url.href.replace(/\/$/, "");
 }
-export function createManagerRouter(fetcher: typeof fetch = fetch) {
+export function createManagerRouter(fetcher: typeof fetch = fetch, onNimbleKey?: (key: string | null) => void) {
   const router = Router();
   const configs: Partial<Record<Provider, Config>> = {};
   let seedBusy = false;
   const states = () => Object.fromEntries((["liquid", "nimble", "rawtree"] as Provider[]).map(provider => [provider, { configured: Boolean(configs[provider]), verifiedAt: configs[provider]?.verifiedAt ?? null, message: configs[provider]?.message ?? "Not connected" }]));
-  router.use((request, response, next) => {
-    response.setHeader("Cache-Control", "no-store");
-    const host = request.headers.host ?? "";
-    const origin = request.headers.origin;
-    const localHost = /^(localhost|127\.0\.0\.1|\[::1\]):(3001|5173)$/.test(host);
-    const localOrigin = !origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):(3001|5173)$/.test(origin);
-    if (!localHost || !localOrigin || request.headers["x-nightwatch-local"] !== "1") return response.status(403).json({ error: "Open Settings from the local Nightwatch app." });
-    next();
-  });
+  router.use(requireLocalManager);
   async function remote(url: string, init: RequestInit = {}) {
     const response = await fetcher(url, { ...init, redirect: "error", signal: AbortSignal.timeout(25000) });
     if (!response.ok) {
@@ -59,6 +63,7 @@ export function createManagerRouter(fetcher: typeof fetch = fetch) {
     if (!parsed.success) return response.status(400).json({ error: "Check the provider, API key and database name." });
     const { provider, apiKey, database, endpoint } = parsed.data;
     delete configs[provider];
+    if (provider === "nimble") onNimbleKey?.(null);
     try {
       let message = "";
       let config: Config;
@@ -85,6 +90,7 @@ export function createManagerRouter(fetcher: typeof fetch = fetch) {
         }
       }
       configs[provider] = { ...config, verifiedAt: new Date().toISOString(), message };
+      if (provider === "nimble") onNimbleKey?.(apiKey!);
       return response.json({ connections: states(), message });
     } catch (reason) { return response.status(400).json({ error: errorMessage(reason), connections: states() }); }
   });
@@ -92,6 +98,7 @@ export function createManagerRouter(fetcher: typeof fetch = fetch) {
     const parsed = providerSchema.safeParse(request.body?.provider);
     if (!parsed.success) return response.status(400).json({ error: "Choose a provider." });
     delete configs[parsed.data];
+    if (parsed.data === "nimble") onNimbleKey?.(null);
     return response.json({ connections: states(), message: "Connection cleared from server memory." });
   });
   router.post("/seed", async (_request, response) => {

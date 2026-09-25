@@ -3,11 +3,14 @@ import { createRoot } from "react-dom/client";
 import type { RuntimeSnapshot, TimelineEvent } from "../shared/api";
 import type { StateMutation } from "../shared/domain";
 import "./manager.css";
+import { ManagerAlerts } from "./ManagerAlerts";
+import { CameraSettings, usePhoneConnection } from "./PhoneConnection";
 import { ConnectionsSettings, DemoAssets, managerApi, type ConnectionStates } from "./ManagerSetup";
 
-type IconName = "home" | "settings" | "eye" | "search" | "memory" | "arrow" | "check" | "close" | "rules" | "cart";
+type IconName = "home" | "settings" | "eye" | "search" | "memory" | "arrow" | "check" | "close" | "rules" | "cart" | "camera";
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
+    camera: <><path d="M8 6 10 3h4l2 3h5v15H3V6Z" /><circle cx="12" cy="13" r="4" /></>,
     cart: <><path d="M3 4h2l3 12h11l2-8H6" /><circle cx="9" cy="20" r="1" /><circle cx="18" cy="20" r="1" /></>,
     home: <><path d="m3 10 9-7 9 7v10H3Z" /><path d="M9 20v-7h6v7" /></>,
     settings: <><path d="M4 7h16M4 17h16" /><circle cx="8" cy="7" r="3" /><circle cx="16" cy="17" r="3" /></>,
@@ -41,6 +44,8 @@ function eventCopy(m: StateMutation) {
 }
 
 function Manager() {
+  const phoneCamera = usePhoneConnection();
+  const phoneMode = phoneCamera.mode === "phone";
   const [tab, setTab] = useState<"overview" | "settings">("overview");
   const [settingsTab, setSettingsTab] = useState("Connections");
   const [snapshot, setSnapshot] = useState<RuntimeSnapshot | null>(null);
@@ -56,6 +61,8 @@ function Manager() {
   const [connectionFocus, setConnectionFocus] = useState<{ id: string } | null>(null);
   const [shoppingPreview, setShoppingPreview] = useState<"running" | "complete" | null>(null);
   const shoppingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionNote, setSessionNote] = useState("");
   const [draft, setDraft] = useState("");
   const video = useRef<HTMLVideoElement>(null);
   const session = useRef("");
@@ -68,6 +75,10 @@ function Manager() {
   useEffect(() => () => clearTimeout(shoppingTimer.current), []);
 
   useEffect(() => {
+    if (phoneMode) {
+      setSnapshot(null); setEvents([]); setSelected(null); setPulse([]); setError("");
+      return;
+    }
     let cancelled = false;
     let stream: EventSource | undefined;
     let requestNumber = 0;
@@ -135,23 +146,42 @@ function Manager() {
       void startFeed();
     }).catch(reason => { if (!cancelled) { setFeedStatus("unavailable"); setError(String(reason.message)); } });
     return () => { cancelled = true; restartFeed.current = () => {}; video.current?.pause(); stream?.close(); clearTimeout(pulseTimer.current); if (session.current) void api(`/api/sessions/${session.current}/pause`, {}).catch(() => {}); };
-  }, [retry]);
+  }, [retry, phoneMode]);
 
   function configure(section = "Connections", provider?: string) { setConnectionFocus(provider ? { id: provider } : null); setSettingsTab(section); setTab("settings"); }
+  async function sessionCheck(action: "restart" | "occlusion") {
+    if (!session.current || phoneMode || sessionBusy) return;
+    setSessionBusy(true); setSessionNote("");
+    try {
+      if (action === "restart") video.current?.pause();
+      const next = await api<RuntimeSnapshot>(`/api/sessions/${session.current}/${action}`, action === "occlusion" ? { enabled: !snapshot?.playback.manual_occlusion } : {});
+      setSnapshot(next);
+      if (action === "restart" && video.current) {
+        video.current.currentTime = next.playback.current_time;
+        await video.current.play();
+        setSnapshot(await api<RuntimeSnapshot>(`/api/sessions/${session.current}/start`, { speed: 1 }));
+        setSessionNote("Saved state restored. Fresh observations will confirm the room again.");
+      } else setSessionNote(next.playback.manual_occlusion ? "View blocked. Monitoring uncertainty is retained." : "View restored. Waiting for confirmed observations.");
+    } catch (reason) { setSessionNote(reason instanceof Error ? reason.message : "The session check failed."); }
+    finally { setSessionBusy(false); }
+  }
   function previewShopping() {
     clearTimeout(shoppingTimer.current);
     setShoppingPreview("running");
     setTab("overview");
     shoppingTimer.current = setTimeout(() => setShoppingPreview("complete"), 2400);
   }
-  const playing = feedStatus === "observing" && connected;
+  const playing = phoneMode ? phoneCamera.status === "live" : feedStatus === "observing" && connected;
   const observation = snapshot?.latest_observation;
   const activity = [...events].reverse();
   const detail = selected ? eventCopy(selected.mutation) : null;
+  const nimbleLive = snapshot?.integrations.nimble.mode === "nimble_live";
+  const nimbleWorking = snapshot?.parent_notifications.some(item => item.research_provider === "nimble_live" && item.status === "researching");
   const nodes: { id: string; name: string; note: string; icon: IconName; offline?: boolean }[] = [
-    { id: "vision", name: "Vision", note: "Sample provider", icon: "eye" },
-    { id: "memory", name: "Memory", note: "Current session", icon: "memory" },
-    { id: "nimble", name: "Nimble", note: connectionStates.nimble?.verifiedAt ? "Search tested" : "Not connected", icon: "search", offline: !connectionStates.nimble?.verifiedAt },
+    { id: "camera", name: "Camera", note: phoneMode ? phoneCamera.status === "live" ? "Live" : "Connect phone" : "Sample footage", icon: "camera", offline: phoneCamera.status !== "live" },
+    { id: "vision", name: "Vision", note: phoneMode ? "Analysis not connected" : "Sample provider", icon: "eye", offline: phoneMode },
+    { id: "memory", name: "Memory", note: phoneMode ? "No live analysis" : "Current session", icon: "memory", offline: phoneMode },
+    { id: "nimble", name: "Nimble", note: nimbleWorking ? "Researching" : nimbleLive ? "Live research" : connectionStates.nimble?.verifiedAt ? "Search tested" : "Not connected", icon: "search", offline: !nimbleLive && !connectionStates.nimble?.verifiedAt },
     { id: "rawtree", name: "RawTree", note: connectionStates.rawtree?.verifiedAt ? "Read access tested" : "Not connected", icon: "memory", offline: !connectionStates.rawtree?.verifiedAt },
     { id: "instacart", name: "Instacart", note: "Not connected · Shopping preview", icon: "cart", offline: true }
   ];
@@ -162,8 +192,8 @@ function Manager() {
         <button className={tab === "settings" ? "selected" : ""} onClick={() => configure()}><Icon name="settings" />Settings</button>
       </nav>
       <div className="connection-heading"><h2>Connections</h2><button aria-label="Configure connections" onClick={() => configure()}>+</button></div>
-      <div className="connection-list">{nodes.map(node => <button key={node.id} title={`${node.name} · ${servicePulse === node.id ? "Request in progress" : pulse.includes(node.id) ? "Just updated" : node.note}`} aria-label={`${node.name}: ${node.note}`} onClick={() => node.id === "memory" ? (setTab("overview"), setHistory(true)) : configure("Connections", node.id === "vision" ? "liquid" : node.id)} className={`connection-row ${pulse.includes(node.id) || servicePulse === node.id || (node.id === "instacart" && shoppingPreview === "running") ? "working" : ""}`}>
-        <Icon name={node.icon} /><span><strong>{node.name}</strong>{node.id === "instacart" && shoppingPreview === "running" && <small>Previewing…</small>}</span><i className={node.offline ? "offline" : connected ? "available" : "offline"} />
+      <div className="connection-list">{nodes.map(node => <button key={node.id} title={`${node.name} · ${servicePulse === node.id ? "Request in progress" : pulse.includes(node.id) ? "Just updated" : node.note}`} aria-label={`${node.name}: ${node.note}`} onClick={() => node.id === "memory" ? (setTab("overview"), setHistory(true)) : configure("Connections", node.id === "vision" ? "liquid" : node.id)} className={`connection-row ${pulse.includes(node.id) || servicePulse === node.id || (node.id === "nimble" && nimbleWorking) || (node.id === "instacart" && shoppingPreview === "running") ? "working" : ""}`}>
+        <Icon name={node.icon} /><span><strong>{node.name}</strong>{node.id === "camera" && phoneCamera.status === "live" && <small>Live</small>}{node.id === "instacart" && shoppingPreview === "running" && <small>Previewing…</small>}</span><i className={node.offline ? "offline" : connected ? "available" : "offline"} />
       </button>)}</div>
       <div className="sidebar-bottom"><span className={`service-dot ${connected ? "online" : ""}`} /><span>{connected ? "Local connection" : "Offline"}</span></div>
     </aside>
@@ -172,18 +202,23 @@ function Manager() {
       <div hidden={tab !== "overview"}>
         <div className="workspace-grid">
           <section className="camera-section" aria-label="Nursery camera">
-            <div className="section-heading"><h1 className="camera-heading">Nursery</h1><span className={`feed-status ${playing ? "is-observing" : ""}`}><i />{playing ? "Observing" : feedStatus === "unavailable" ? "Connection lost" : "Connecting"}</span></div>
+            <div className="section-heading"><h1 className="camera-heading">Nursery</h1><span className={`feed-status ${playing ? "is-observing" : ""}`}><i />{phoneMode ? playing ? "Live" : phoneCamera.status === "stale" || phoneCamera.status === "error" ? "Connection lost" : "Waiting for camera" : playing ? "Observing" : feedStatus === "unavailable" ? "Connection lost" : "Connecting"}</span></div>
             <div className="camera-stage observer-stage">
-              <video ref={video} src="/demo.mp4" poster="/nursery-poster.jpg" muted playsInline preload="auto" disablePictureInPicture onEnded={() => restartFeed.current()} onError={() => { setFeedStatus("unavailable"); setError("Camera source is unavailable. Reconnect to try again."); }} />
-              <span className="camera-position">Camera 01 · Room view</span>
+              <video hidden={phoneMode} ref={video} src="/demo.mp4" poster="/nursery-poster.jpg" muted playsInline preload="auto" disablePictureInPicture onEnded={() => restartFeed.current()} onError={() => { if (phoneMode) return; setFeedStatus("unavailable"); setError("Camera source is unavailable. Reconnect to try again."); }} />
+              {phoneMode && (phoneCamera.image && playing ? <img className="live-camera-image" src={phoneCamera.image} alt="Live view from your paired phone" /> : <div className="camera-waiting"><Icon name="camera" /><p>{phoneCamera.status === "stale" ? "Open the camera page on your phone" : phoneCamera.status === "error" ? "Connect your phone again" : "Your phone’s view will appear here"}</p><button className="secondary-button" onClick={() => configure("Connections", "camera")}>{phoneCamera.pair && phoneCamera.status !== "error" ? "Show pairing code" : "Connect camera"}</button></div>)}
+              {(!phoneMode || playing) && <span className="camera-position">{phoneMode ? "Phone camera" : "Camera 01 · Room view"}</span>}
             </div>
-            <div className={`observation ${pulse.includes("vision") ? "recent" : ""}`}><Icon name="eye" /><p>{observation?.short_description ?? "Waiting for the next observation…"}</p></div>
+            {!phoneMode && snapshot?.playback.manual_occlusion && <p className="view-uncertain">View blocked · Waiting for fresh evidence</p>}
+            <div className={`observation ${pulse.includes("vision") ? "recent" : ""}`}><Icon name="eye" /><p>{phoneMode ? "Vision analysis is not connected to this camera yet." : observation?.short_description ?? "Waiting for the next observation…"}</p></div>
+            {!phoneMode && snapshot && <details className="room-context"><summary>Room context <span>{snapshot.state.room.stale ? "Needs confirmation" : `${snapshot.state.room.children_in_cribs ?? "—"} in cribs`}</span></summary><p>{snapshot.state.room.uncertainties.join(" ") || "Confirmed from repeated observations."}</p>{snapshot.state.situations.filter(item => item.status !== "resolved").map(item => <p key={item.id}>{words(item.type)} · {words(item.status)}</p>)}<small>{snapshot.state.metrics.frames_sampled} frames · {snapshot.state.metrics.repeated_observations_discarded} repeats discarded · State saved locally</small></details>}
           </section>
           <section className="activity-section" aria-label="Activity">
             <div className="section-heading"><h2>Activity</h2><span className="listening" aria-label={playing ? "Following activity" : "Ready"}><i className={playing ? "on" : ""} /></span></div>
+            <ManagerAlerts notifications={snapshot?.parent_notifications ?? []} />
             <div className="activity-list">
+              {phoneMode && <div className="shopping-activity"><Icon name="camera" /><div><span className="event-meta">Camera</span><strong>{playing ? "Phone camera connected" : phoneCamera.status === "stale" ? "Camera feed interrupted" : phoneCamera.status === "error" ? "Camera pairing ended" : phoneCamera.status === "off" ? "Camera disconnected" : "Waiting for your phone"}</strong><p>{playing ? "Live images · No recording" : "Open Camera in Connections to manage the feed."}</p></div></div>}
               {shoppingPreview && <div className={`shopping-activity ${shoppingPreview === "running" ? "is-running" : ""}`} role="status"><Icon name="cart" /><div><span className="event-meta">Instacart<span>Preview</span></span><strong>{shoppingPreview === "running" ? "Preparing diaper restock…" : "Diaper restock previewed"}</strong><p>No order placed.</p></div><button aria-label="Dismiss shopping preview" onClick={() => { clearTimeout(shoppingTimer.current); setShoppingPreview(null); }}><Icon name="close" /></button></div>}
-              {!activity.length && !shoppingPreview && <p className="empty-activity">Activity will appear here.</p>}
+              {!phoneMode && !activity.length && !shoppingPreview && <p className="empty-activity">Activity will appear here.</p>}
               {activity.slice(0, history ? 50 : 4).map(event => { const copy = eventCopy(event.mutation); return <button className={`activity-event ${selected?.id === event.id ? "is-selected" : ""}`} key={event.id} onClick={() => setSelected(selected?.id === event.id ? null : event)}><span className={`event-dot ${event.mutation.type === "ALERT_EMITTED" ? "attention" : ""}`} /><span><span className="event-meta">{copy.source}<time>{age((snapshot?.playback.current_time ?? 0) - event.video_timestamp)}</time></span><strong>{copy.title}</strong></span><Icon name="arrow" /></button>; })}
             </div>
             {detail && selected && <div className="event-detail"><div className="detail-title"><h3>Why this happened</h3><button aria-label="Close event details" onClick={() => setSelected(null)}><Icon name="close" /></button></div><dl><dt>Evidence</dt><dd>{selected.frame_id ?? "Monitoring rule"} · {time(selected.video_timestamp)}</dd><dt>Decision summary</dt><dd>{detail.detail}</dd><dt>Result</dt><dd>{detail.result}</dd></dl><small>Summary from recorded events, not model reasoning.</small></div>}
@@ -194,8 +229,8 @@ function Manager() {
       <section hidden={tab !== "settings"} className="settings-page">
         <div className="page-heading"><h1>Settings</h1><button className="quiet-link" onClick={() => setTab("overview")}>Back to overview <Icon name="arrow" /></button></div>
         <nav className="settings-tabs" aria-label="Settings sections">{["Connections", "Contacts", "Rules", "Demo assets"].map(item => <button key={item} aria-current={settingsTab === item ? "page" : undefined} className={settingsTab === item ? "active" : ""} onClick={() => { setSettingsTab(item); setDraft(""); }}>{item}</button>)}</nav>
-        {settingsTab === "Connections" && <ConnectionsSettings onStates={setConnectionStates} onRequest={setServicePulse} focus={connectionFocus} onShoppingPreview={previewShopping} />}
-        {settingsTab === "Demo assets" && <DemoAssets rawtreeReady={Boolean(connectionStates.rawtree?.verifiedAt)} onRequest={setServicePulse} />}
+        {settingsTab === "Connections" && <ConnectionsSettings onStates={setConnectionStates} onRequest={setServicePulse} focus={connectionFocus} onShoppingPreview={previewShopping} cameraSettings={(expanded, onToggle) => <CameraSettings camera={phoneCamera} expanded={expanded} onToggle={onToggle} />} />}
+        {settingsTab === "Demo assets" && <><section className="asset-section"><h3>Session checks</h3><p>Check how the current sample session handles a blocked view and restores saved memory.</p><div className="setup-actions"><button className="secondary-button" disabled={phoneMode || sessionBusy || !snapshot} onClick={() => void sessionCheck("occlusion")}>{snapshot?.playback.manual_occlusion ? "Restore view" : "Block view"}</button><button className="secondary-button" disabled={phoneMode || sessionBusy || !snapshot} onClick={() => void sessionCheck("restart")}>Restore saved state</button></div>{phoneMode && <p className="draft-notice">These checks apply to sample footage. Switch back in Camera settings to use them.</p>}{sessionNote && <p className="setup-feedback" role="status">{sessionNote}</p>}</section><DemoAssets rawtreeReady={Boolean(connectionStates.rawtree?.verifiedAt)} onRequest={setServicePulse} /></>}
         {settingsTab === "Contacts" && <><p className="draft-notice">Layout preview. Contacts are not saved and no messages are sent.</p><form className="contact-form" onSubmit={event => { event.preventDefault(); setDraft("Preview updated. This contact is not connected to notifications."); }}><label>Name<input name="name" required placeholder="e.g. Martin" /></label><label>Phone number<input name="phone" type="tel" required placeholder="+1 (555) 000-0000" /></label><label className="full-width">When to notify<textarea name="when" required placeholder="Notify first when a room check is needed." /></label><button className="primary-button" type="submit">Preview contact</button></form></>}
         {settingsTab === "Rules" && <><div className="rule-summary"><Icon name="rules" /><div><h3>Request a room review</h3><p>After a child has been outside a crib for 10 seconds, record an in-app alert. Two matching observations confirm a change.</p><span>Active in the local engine</span></div></div><form className="rule-form" onSubmit={event => { event.preventDefault(); setDraft("Rule preview updated. Shopping is not connected and this rule will not run."); }}><h3>Restock diapers</h3><p className="draft-notice">Example rule · Not active</p><label>When<input defaultValue="A caregiver confirms a diaper change" /></label><label>And<input defaultValue="Fewer than 6 diapers remain" /></label><label>Then<select defaultValue="review"><option value="review">Prepare an order for review</option><option value="auto">Buy within an approved budget</option></select></label><button className="primary-button">Preview rule</button></form></>}
         {draft && <p role="status" className="draft-feedback"><Icon name="check" />{draft}</p>}
