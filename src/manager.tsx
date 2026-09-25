@@ -5,9 +5,10 @@ import type { StateMutation } from "../shared/domain";
 import "./manager.css";
 import { ConnectionsSettings, DemoAssets, managerApi, type ConnectionStates } from "./ManagerSetup";
 
-type IconName = "home" | "settings" | "eye" | "search" | "memory" | "arrow" | "check" | "close" | "rules";
+type IconName = "home" | "settings" | "eye" | "search" | "memory" | "arrow" | "check" | "close" | "rules" | "cart";
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
+    cart: <><path d="M3 4h2l3 12h11l2-8H6" /><circle cx="9" cy="20" r="1" /><circle cx="18" cy="20" r="1" /></>,
     home: <><path d="m3 10 9-7 9 7v10H3Z" /><path d="M9 20v-7h6v7" /></>,
     settings: <><path d="M4 7h16M4 17h16" /><circle cx="8" cy="7" r="3" /><circle cx="16" cy="17" r="3" /></>,
     eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></>,
@@ -52,6 +53,9 @@ function Manager() {
   const [history, setHistory] = useState(false);
   const [connectionStates, setConnectionStates] = useState<ConnectionStates>({});
   const [servicePulse, setServicePulse] = useState<string | null>(null);
+  const [connectionFocus, setConnectionFocus] = useState<{ id: string } | null>(null);
+  const [shoppingPreview, setShoppingPreview] = useState<"running" | "complete" | null>(null);
+  const shoppingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [draft, setDraft] = useState("");
   const video = useRef<HTMLVideoElement>(null);
   const session = useRef("");
@@ -61,6 +65,7 @@ function Manager() {
   const [retry, setRetry] = useState(0);
 
   useEffect(() => { void managerApi<ConnectionStates>("connections").then(setConnectionStates).catch(() => {}); }, []);
+  useEffect(() => () => clearTimeout(shoppingTimer.current), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,7 +137,13 @@ function Manager() {
     return () => { cancelled = true; restartFeed.current = () => {}; video.current?.pause(); stream?.close(); clearTimeout(pulseTimer.current); if (session.current) void api(`/api/sessions/${session.current}/pause`, {}).catch(() => {}); };
   }, [retry]);
 
-  function configure(section = "Connections") { setSettingsTab(section); setTab("settings"); }
+  function configure(section = "Connections", provider?: string) { setConnectionFocus(provider ? { id: provider } : null); setSettingsTab(section); setTab("settings"); }
+  function previewShopping() {
+    clearTimeout(shoppingTimer.current);
+    setShoppingPreview("running");
+    setTab("overview");
+    shoppingTimer.current = setTimeout(() => setShoppingPreview("complete"), 2400);
+  }
   const playing = feedStatus === "observing" && connected;
   const observation = snapshot?.latest_observation;
   const activity = [...events].reverse();
@@ -141,7 +152,8 @@ function Manager() {
     { id: "vision", name: "Vision", note: "Sample provider", icon: "eye" },
     { id: "memory", name: "Memory", note: "Current session", icon: "memory" },
     { id: "nimble", name: "Nimble", note: connectionStates.nimble?.verifiedAt ? "Search tested" : "Not connected", icon: "search", offline: !connectionStates.nimble?.verifiedAt },
-    { id: "rawtree", name: "RawTree", note: connectionStates.rawtree?.verifiedAt ? "Read access tested" : "Not connected", icon: "memory", offline: !connectionStates.rawtree?.verifiedAt }
+    { id: "rawtree", name: "RawTree", note: connectionStates.rawtree?.verifiedAt ? "Read access tested" : "Not connected", icon: "memory", offline: !connectionStates.rawtree?.verifiedAt },
+    { id: "instacart", name: "Instacart", note: "Not connected · Shopping preview", icon: "cart", offline: true }
   ];
   return <div className="manager">
     <aside className="sidebar">
@@ -150,8 +162,8 @@ function Manager() {
         <button className={tab === "settings" ? "selected" : ""} onClick={() => configure()}><Icon name="settings" />Settings</button>
       </nav>
       <div className="connection-heading"><h2>Connections</h2><button aria-label="Configure connections" onClick={() => configure()}>+</button></div>
-      <div className="connection-list">{nodes.map(node => <button key={node.id} title={`${node.name} · ${servicePulse === node.id ? "Request in progress" : pulse.includes(node.id) ? "Just updated" : node.note}`} aria-label={`${node.name}: ${node.note}`} onClick={() => node.id === "memory" ? (setTab("overview"), setHistory(true)) : configure(node.id === "rules" ? "Rules" : "Connections")} className={`connection-row ${pulse.includes(node.id) || servicePulse === node.id ? "working" : ""}`}>
-        <Icon name={node.icon} /><span><strong>{node.name}</strong></span><i className={node.offline ? "offline" : connected ? "available" : "offline"} />
+      <div className="connection-list">{nodes.map(node => <button key={node.id} title={`${node.name} · ${servicePulse === node.id ? "Request in progress" : pulse.includes(node.id) ? "Just updated" : node.note}`} aria-label={`${node.name}: ${node.note}`} onClick={() => node.id === "memory" ? (setTab("overview"), setHistory(true)) : configure("Connections", node.id === "vision" ? "liquid" : node.id)} className={`connection-row ${pulse.includes(node.id) || servicePulse === node.id || (node.id === "instacart" && shoppingPreview === "running") ? "working" : ""}`}>
+        <Icon name={node.icon} /><span><strong>{node.name}</strong>{node.id === "instacart" && shoppingPreview === "running" && <small>Previewing…</small>}</span><i className={node.offline ? "offline" : connected ? "available" : "offline"} />
       </button>)}</div>
       <div className="sidebar-bottom"><span className={`service-dot ${connected ? "online" : ""}`} /><span>{connected ? "Local connection" : "Offline"}</span></div>
     </aside>
@@ -166,12 +178,12 @@ function Manager() {
               <span className="camera-position">Camera 01 · Room view</span>
             </div>
             <div className={`observation ${pulse.includes("vision") ? "recent" : ""}`}><Icon name="eye" /><p>{observation?.short_description ?? "Waiting for the next observation…"}</p></div>
-            <p className="feed-source">Sample feed · Repeats automatically</p>
           </section>
           <section className="activity-section" aria-label="Activity">
             <div className="section-heading"><h2>Activity</h2><span className="listening" aria-label={playing ? "Following activity" : "Ready"}><i className={playing ? "on" : ""} /></span></div>
             <div className="activity-list">
-              {!activity.length && <p className="empty-activity">Activity will appear here.</p>}
+              {shoppingPreview && <div className={`shopping-activity ${shoppingPreview === "running" ? "is-running" : ""}`} role="status"><Icon name="cart" /><div><span className="event-meta">Instacart<span>Preview</span></span><strong>{shoppingPreview === "running" ? "Preparing diaper restock…" : "Diaper restock previewed"}</strong><p>No order placed.</p></div><button aria-label="Dismiss shopping preview" onClick={() => { clearTimeout(shoppingTimer.current); setShoppingPreview(null); }}><Icon name="close" /></button></div>}
+              {!activity.length && !shoppingPreview && <p className="empty-activity">Activity will appear here.</p>}
               {activity.slice(0, history ? 50 : 4).map(event => { const copy = eventCopy(event.mutation); return <button className={`activity-event ${selected?.id === event.id ? "is-selected" : ""}`} key={event.id} onClick={() => setSelected(selected?.id === event.id ? null : event)}><span className={`event-dot ${event.mutation.type === "ALERT_EMITTED" ? "attention" : ""}`} /><span><span className="event-meta">{copy.source}<time>{age((snapshot?.playback.current_time ?? 0) - event.video_timestamp)}</time></span><strong>{copy.title}</strong></span><Icon name="arrow" /></button>; })}
             </div>
             {detail && selected && <div className="event-detail"><div className="detail-title"><h3>Why this happened</h3><button aria-label="Close event details" onClick={() => setSelected(null)}><Icon name="close" /></button></div><dl><dt>Evidence</dt><dd>{selected.frame_id ?? "Monitoring rule"} · {time(selected.video_timestamp)}</dd><dt>Decision summary</dt><dd>{detail.detail}</dd><dt>Result</dt><dd>{detail.result}</dd></dl><small>Summary from recorded events, not model reasoning.</small></div>}
@@ -182,7 +194,7 @@ function Manager() {
       <section hidden={tab !== "settings"} className="settings-page">
         <div className="page-heading"><h1>Settings</h1><button className="quiet-link" onClick={() => setTab("overview")}>Back to overview <Icon name="arrow" /></button></div>
         <nav className="settings-tabs" aria-label="Settings sections">{["Connections", "Contacts", "Rules", "Demo assets"].map(item => <button key={item} aria-current={settingsTab === item ? "page" : undefined} className={settingsTab === item ? "active" : ""} onClick={() => { setSettingsTab(item); setDraft(""); }}>{item}</button>)}</nav>
-        {settingsTab === "Connections" && <ConnectionsSettings onStates={setConnectionStates} onRequest={setServicePulse} />}
+        {settingsTab === "Connections" && <ConnectionsSettings onStates={setConnectionStates} onRequest={setServicePulse} focus={connectionFocus} onShoppingPreview={previewShopping} />}
         {settingsTab === "Demo assets" && <DemoAssets rawtreeReady={Boolean(connectionStates.rawtree?.verifiedAt)} onRequest={setServicePulse} />}
         {settingsTab === "Contacts" && <><p className="draft-notice">Layout preview. Contacts are not saved and no messages are sent.</p><form className="contact-form" onSubmit={event => { event.preventDefault(); setDraft("Preview updated. This contact is not connected to notifications."); }}><label>Name<input name="name" required placeholder="e.g. Martin" /></label><label>Phone number<input name="phone" type="tel" required placeholder="+1 (555) 000-0000" /></label><label className="full-width">When to notify<textarea name="when" required placeholder="Notify first when a room check is needed." /></label><button className="primary-button" type="submit">Preview contact</button></form></>}
         {settingsTab === "Rules" && <><div className="rule-summary"><Icon name="rules" /><div><h3>Request a room review</h3><p>After a child has been outside a crib for 10 seconds, record an in-app alert. Two matching observations confirm a change.</p><span>Active in the local engine</span></div></div><form className="rule-form" onSubmit={event => { event.preventDefault(); setDraft("Rule preview updated. Shopping is not connected and this rule will not run."); }}><h3>Restock diapers</h3><p className="draft-notice">Example rule · Not active</p><label>When<input defaultValue="A caregiver confirms a diaper change" /></label><label>And<input defaultValue="Fewer than 6 diapers remain" /></label><label>Then<select defaultValue="review"><option value="review">Prepare an order for review</option><option value="auto">Buy within an approved budget</option></select></label><button className="primary-button">Preview rule</button></form></>}

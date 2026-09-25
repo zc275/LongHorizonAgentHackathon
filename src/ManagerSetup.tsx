@@ -15,13 +15,14 @@ const providers: { id: ProviderId; name: string; role: string; steps: string[]; 
   { id: "nimble", name: "Nimble", role: "Find the missing information", steps: ["Open your Nimble account, then Settings → API Keys. Create or copy your key.", "Paste the key below. The test makes one small public search and may use account credits.", "Use Nimble for product documentation and sources. The current camera workflow does not yet trigger searches."], href: "https://docs.nimbleway.com/nimble-sdk/getting-started/quickstart", account: "https://online.nimbleway.com" },
   { id: "rawtree", name: "RawTree", role: "Keep the context between sessions", steps: ["Create a database named family_assistant_demo in your RawTree account.", "Create a read_write API key and enter the database name below. Keys are cluster-wide; the app selects this database explicitly.", "Test read access, load the sample household, then read it back in Demo assets."], href: "https://rawtree.com/docs/quickstart/api", account: "https://rawtree.com" }
 ];
-export function ConnectionsSettings({ onStates, onRequest }: { onStates: (states: ConnectionStates) => void; onRequest: (provider: string | null) => void }) {
+export function ConnectionsSettings({ onStates, onRequest, focus, onShoppingPreview }: { onStates: (states: ConnectionStates) => void; onRequest: (provider: string | null) => void; focus: { id: string } | null; onShoppingPreview: () => void }) {
   const [states, setStates] = useState<ConnectionStates>({});
-  const [expanded, setExpanded] = useState<ProviderId | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string>>({ liquid: "http://localhost:8080/v1", database: "family_assistant_demo" });
   const [busy, setBusy] = useState<ProviderId | null>(null);
   const [messages, setMessages] = useState<Record<string, { text: string; error: boolean }>>({});
   useEffect(() => { void managerApi<ConnectionStates>("connections").then(result => { setStates(result); onStates(result); }).catch(() => {}); }, [onStates]);
+  useEffect(() => { setExpanded(focus?.id ?? null); }, [focus]);
   async function connect(provider: ProviderId, disconnect = false) {
     setBusy(provider); onRequest(provider);
     setMessages(previous => ({ ...previous, [provider]: { text: "Contacting the service…", error: false } }));
@@ -53,6 +54,10 @@ export function ConnectionsSettings({ onStates, onRequest }: { onStates: (states
         {messages[provider.id] && <p className={`setup-feedback ${messages[provider.id].error ? "failed" : ""}`} role="status">{messages[provider.id].text}</p>}
       </div>}
     </section>)}
+    <section className="setup-provider">
+      <button className="provider-disclosure" aria-expanded={expanded === "instacart"} onClick={() => setExpanded(expanded === "instacart" ? null : "instacart")}><span><strong>Instacart</strong><small>Restock household essentials</small></span><span>Not connected<span className="disclosure-chevron">{expanded === "instacart" ? "−" : "+"}</span></span></button>
+      {expanded === "instacart" && <div className="provider-body"><p className="draft-notice">Preview how a diaper restock request appears in the manager. This connection is not implemented; no order is placed.</p><button className="secondary-button" onClick={onShoppingPreview}>Preview request</button></div>}
+    </section>
   </>;
 }
 

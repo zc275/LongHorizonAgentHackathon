@@ -46,6 +46,14 @@
 .observer-stage{aspect-ratio:16/9}
 .camera-position{position:absolute;left:16px;bottom:14px;font-size:10px;color:#fff;background:#28302b99;padding:5px 8px;border-radius:5px}
 .observation{padding-top:18px;padding-bottom:5px}
-.feed-source{font-size:9px;color:var(--muted);margin:8px 0 0 27px}
 @media(max-width:1150px){.sidebar{padding-top:31px}}
 @media(max-width:600px){.sidebar{padding-top:16px}.observer-stage{aspect-ratio:16/9}}
+
+.shopping-activity{display:flex;gap:12px;padding:19px 0;border-bottom:1px solid var(--line);transition:background .2s}
+.shopping-activity>svg{width:16px;flex-shrink:0;color:var(--iris);margin-top:2px}
+.shopping-activity>div{flex:1;min-width:0}.shopping-activity strong{font-size:12px;font-weight:500;line-height:1.6;display:block}
+.shopping-activity p{font-size:10px;color:var(--muted);margin:6px 0 0}
+.shopping-activity>button{align-self:flex-start;color:var(--muted);padding:2px}.shopping-activity>button svg{width:14px;height:14px}
+.shopping-activity.is-running{background:var(--mist)}
+.connection-row.working>i{background:var(--iris)}
+@media(max-width:600px){.connection-list{display:flex;gap:6px;overflow-x:auto;margin-top:14px}.connection-row{flex:0 0 auto;padding:9px;gap:7px}.connection-row>svg{width:15px}.connection-row strong{font-size:11px}.connection-row small{display:none}.connection-row>i{margin-left:3px}}
