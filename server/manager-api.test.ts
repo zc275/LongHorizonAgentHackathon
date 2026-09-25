@@ -74,6 +74,14 @@ describe("local manager connection boundaries", () => {
     expect(result.status).toBe(400);
     expect(remote).toHaveBeenCalledTimes(3);
   });
+  it("loads the seed when RawTree reports an absent table with HTTP 400", async () => {
+    await connectRawTree();
+    remote.mockResolvedValueOnce(json({ error: "rawtree_error", message: "Table not found." }, 400));
+    remote.mockResolvedValueOnce(json({ inserted: demoSeed.length }));
+    const result = await call("/seed", {});
+    expect(result.status).toBe(200);
+    expect(result.body.inserted).toBe(demoSeed.length);
+  });
   it("requires a Liquid model rather than accepting any reachable model server", async () => {
     remote.mockResolvedValueOnce(json({ data: [{ id: "some-other-model" }] }));
     const result = await call("/connect", { provider: "liquid", endpoint: "http://localhost:8080/v1" });

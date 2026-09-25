@@ -58,3 +58,17 @@ it("rejects non-image input without retaining it", async () => {
   expect((await fetch(`${base}/camera/${p.id}/frame`, { method: "POST", headers: { Authorization: `Bearer ${senderToken}`, "Content-Type": "image/jpeg" }, body: "not an image" })).status).toBe(400);
   expect((await fetch(`${base}/camera/${p.id}/frame`, { headers: { Authorization: `Bearer ${p.ownerToken}` } })).status).toBe(204);
 });
+it("requires the phone to enable sound before the manager can queue a comfort action", async () => {
+  const p = await pair(); const { senderToken } = await (await claim(p)).json();
+  const url = `${base}/camera/${p.id}`;
+  const owner = { Authorization: `Bearer ${p.ownerToken}`, "Content-Type": "application/json" };
+  const phone = { Authorization: `Bearer ${senderToken}`, "Content-Type": "application/json" };
+  expect((await fetch(`${url}/action`, { method: "POST", headers: owner, body: JSON.stringify({ type: "lullaby" }) })).status).toBe(409);
+  expect((await fetch(`${url}/speaker`, { method: "POST", headers: owner, body: JSON.stringify({ enabled: true }) })).status).toBe(403);
+  expect((await fetch(`${url}/speaker`, { method: "POST", headers: phone, body: JSON.stringify({ enabled: true }) })).status).toBe(200);
+  expect((await fetch(`${url}/action`, { method: "POST", headers: owner, body: JSON.stringify({ type: "lullaby" }) })).status).toBe(200);
+  const action = await (await fetch(`${url}/action`, { headers: phone })).json();
+  expect(action.type).toBe("lullaby");
+  expect((await fetch(`${url}/action?after=${action.sequence}`, { headers: phone })).status).toBe(204);
+  expect((await fetch(`${url}/action`, { headers: owner })).status).toBe(403);
+});

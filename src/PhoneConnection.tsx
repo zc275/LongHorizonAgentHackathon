@@ -12,6 +12,7 @@ export function usePhoneConnection() {
   const [qr, setQr] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [speakerReady, setSpeakerReady] = useState(false);
   const imageRef = useRef("");
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -30,6 +31,7 @@ export function usePhoneConnection() {
         if (!response.ok) throw new Error("Camera connection interrupted.");
         const frameAt = Number(response.headers.get("X-Frame-Time"));
         const paired = response.headers.get("X-Camera-State") === "paired";
+        setSpeakerReady(response.headers.get("X-Speaker-Ready") === "1");
         if (response.status === 200) {
           const blob = await response.blob();
           if (closed) return;
@@ -60,7 +62,7 @@ export function usePhoneConnection() {
     if (!pair) return;
     const response = await fetch(`/api/camera/${pair.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${pair.ownerToken}` }, signal: AbortSignal.timeout(8000) });
     if (!response.ok && response.status !== 403) throw new Error("Could not disconnect. Try again or stop the camera on your phone.");
-    setPair(null); setImage(""); setQr("");
+    setPair(null); setImage(""); setQr(""); setSpeakerReady(false);
   }
   async function connect() {
     if (busy) return;
@@ -80,7 +82,7 @@ export function usePhoneConnection() {
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not disconnect."); }
     finally { setBusy(false); }
   }
-  return { pair, mode, status, image, qr, error, busy, connect, disconnect };
+  return { pair, mode, status, image, qr, error, busy, speakerReady, connect, disconnect };
 }
 export type PhoneConnection = ReturnType<typeof usePhoneConnection>;
 export function CameraSettings({ camera, expanded, onToggle }: { camera: PhoneConnection; expanded: boolean; onToggle: () => void }) {
@@ -100,7 +102,7 @@ export function CameraSettings({ camera, expanded, onToggle }: { camera: PhoneCo
         {camera.mode === "phone" && <button className="quiet-link" disabled={camera.busy} onClick={() => void camera.disconnect(true)}>Use sample footage</button>}
       </div>
       {camera.error && <p className="setup-feedback failed" role="alert">{camera.error}</p>}
-      <p className="draft-notice">Images travel through a Cloudflare HTTPS relay to this computer. Only the latest image is held in memory. No audio or recording. Vision analysis is not connected to this feed yet.</p>
+      <p className="draft-notice">Images travel through a Cloudflare HTTPS relay to this computer. Only the latest image is held in memory. The microphone is off. Liquid AI can describe the live view; comfort sounds play only after you enable them on the phone.</p>
     </div>}
   </section>;
 }

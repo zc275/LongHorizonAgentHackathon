@@ -13,6 +13,11 @@ function PhoneCamera() {
   const sender = useRef<string | null>(null);
   const generation = useRef(0);
   const wakeLock = useRef<WakeLockSentinel | null>(null);
+  const sound = useRef<AudioContext | null>(null);
+  const output = useRef<GainNode | null>(null);
+  const heard = useRef(0);
+  const [soundReady, setSoundReady] = useState(false);
+  const [soundLabel, setSoundLabel] = useState("");
   const [state, setState] = useState<"ready" | "starting" | "live" | "stopped" | "error">("ready");
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(document.hidden);
@@ -36,6 +41,68 @@ function PhoneCamera() {
     window.addEventListener("pagehide", pagehide);
     return () => { release(); document.removeEventListener("visibilitychange", visibility); window.removeEventListener("pagehide", pagehide); };
   }, []);
+  useEffect(() => {
+    if (!soundReady || state !== "live") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function check() {
+      try {
+        const response = await fetch(`/api/camera/${pairing.id}/action?after=${heard.current}`, { headers: { Authorization: `Bearer ${sender.current}` }, cache: "no-store" });
+        if (response.status === 403) return;
+        if (response.ok && response.status !== 204) {
+          const action = await response.json() as { sequence: number; type: "lullaby" | "voice" | "stop" };
+          if (!stopped && action.sequence > heard.current) { heard.current = action.sequence; playAction(action.type); }
+        }
+      } catch { /* A later poll may recover. */ }
+      if (!stopped) timer = setTimeout(() => void check(), 600);
+    }
+    void check();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [soundReady, state]);
+  function stopSound() {
+    speechSynthesis.cancel();
+    if (output.current) output.current.gain.value = 0;
+    setSoundLabel("");
+  }
+  function playAction(type: "lullaby" | "voice" | "stop") {
+    stopSound();
+    if (type === "stop") return;
+    if (type === "voice") {
+      const phrase = new SpeechSynthesisUtterance("I'm here with you. You're safe. I'll check on you now.");
+      phrase.volume = .55; phrase.rate = .85;
+      speechSynthesis.speak(phrase);
+      setSoundLabel("Speaking to baby");
+      return;
+    }
+    const context = sound.current;
+    if (!context) return;
+    void context.resume();
+    const gain = context.createGain(); gain.gain.value = .12; gain.connect(context.destination); output.current = gain;
+    const notes = [392, 440, 392, 330, 349, 392, 330, 294, 330, 349, 294, 262];
+    notes.forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const envelope = context.createGain();
+      const start = context.currentTime + index * .5;
+      oscillator.type = "sine"; oscillator.frequency.value = frequency;
+      envelope.gain.setValueAtTime(0, start);
+      envelope.gain.linearRampToValueAtTime(.16, start + .04);
+      envelope.gain.exponentialRampToValueAtTime(.001, start + .47);
+      oscillator.connect(envelope); envelope.connect(gain);
+      oscillator.start(start); oscillator.stop(start + .5);
+    });
+    setSoundLabel("Playing lullaby");
+  }
+  async function enableSound() {
+    try {
+      const context = new AudioContext(); await context.resume();
+      sound.current = context;
+      const phrase = new SpeechSynthesisUtterance("Sound is ready."); phrase.volume = .45;
+      speechSynthesis.speak(phrase);
+      const response = await fetch(`/api/camera/${pairing.id}/speaker`, { method: "POST", headers: { Authorization: `Bearer ${sender.current}`, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true }) });
+      if (!response.ok) throw new Error("Could not enable sound. Reconnect the phone and try again.");
+      setSoundReady(true); setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Sound is unavailable on this phone."); }
+  }
   async function start() {
     if (!valid || state === "starting" || state === "live") return;
     release();
@@ -93,6 +160,7 @@ function PhoneCamera() {
     }
   }
   function stop() {
+    stopSound(); void sound.current?.close(); sound.current = null; setSoundReady(false);
     release(); setState("stopped"); setError("");
     const key = sender.current;
     sender.current = null;
@@ -106,9 +174,11 @@ function PhoneCamera() {
     {!valid ? <p className="phone-error" role="alert">Scan a fresh QR code from Camera in your manager.</p> : <>
       {error && <p className="phone-error" role="status">{error}</p>}
       {state === "live" || state === "starting" ? <button onClick={stop}>Stop camera</button> : state !== "stopped" && <button className="phone-primary" onClick={() => void start()}>{state === "error" ? "Try again" : "Start camera"}</button>}
+      {state === "live" && !soundReady && <button className="phone-sound" onClick={() => void enableSound()}>Enable sound for comfort tools</button>}
+      {state === "live" && soundReady && <p role="status">{soundLabel || "Sound enabled · Awaiting the manager"}</p>}
       {state === "starting" && <p role="status">Connecting camera…</p>}
     </>}
-    <small>Live images pass through Cloudflare’s HTTPS relay to your computer. Only the latest image is kept in server memory. No audio, recording or AI analysis.</small>
+    <small>Live images pass through Cloudflare’s HTTPS relay to your computer. Only the latest image is kept in server memory. The microphone is off. Sound plays only after you enable it and choose a comfort action in the manager.</small>
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<PhoneCamera />);

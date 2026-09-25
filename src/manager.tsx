@@ -3,13 +3,15 @@ import { createRoot } from "react-dom/client";
 import type { RuntimeSnapshot, TimelineEvent } from "../shared/api";
 import type { StateMutation } from "../shared/domain";
 import "./manager.css";
+import { playLocalComfort, type ComfortAction } from "./comfort";
 import { ManagerAlerts } from "./ManagerAlerts";
 import { CameraSettings, usePhoneConnection } from "./PhoneConnection";
 import { ConnectionsSettings, DemoAssets, managerApi, type ConnectionStates } from "./ManagerSetup";
 
-type IconName = "home" | "settings" | "eye" | "search" | "memory" | "arrow" | "check" | "close" | "rules" | "cart" | "camera";
+type IconName = "home" | "settings" | "eye" | "search" | "memory" | "arrow" | "check" | "close" | "rules" | "cart" | "camera" | "speaker";
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
+    speaker: <><path d="M3 9v6h4l5 4V5L7 9Z" /><path d="M16 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
     camera: <><path d="M8 6 10 3h4l2 3h5v15H3V6Z" /><circle cx="12" cy="13" r="4" /></>,
     cart: <><path d="M3 4h2l3 12h11l2-8H6" /><circle cx="9" cy="20" r="1" /><circle cx="18" cy="20" r="1" /></>,
     home: <><path d="m3 10 9-7 9 7v10H3Z" /><path d="M9 20v-7h6v7" /></>,
@@ -62,6 +64,11 @@ function Manager() {
   const [shoppingPreview, setShoppingPreview] = useState<"running" | "complete" | null>(null);
   const shoppingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [sessionBusy, setSessionBusy] = useState(false);
+  const [liveVision, setLiveVision] = useState("");
+  const [visionError, setVisionError] = useState("");
+  const [visionWorking, setVisionWorking] = useState(false);
+  const [comfortStatus, setComfortStatus] = useState("");
+  const [comfortWorking, setComfortWorking] = useState(false);
   const [sessionNote, setSessionNote] = useState("");
   const [draft, setDraft] = useState("");
   const video = useRef<HTMLVideoElement>(null);
@@ -72,7 +79,28 @@ function Manager() {
   const [retry, setRetry] = useState(0);
 
   useEffect(() => { void managerApi<ConnectionStates>("connections").then(setConnectionStates).catch(() => {}); }, []);
-  useEffect(() => () => clearTimeout(shoppingTimer.current), []);
+  useEffect(() => () => { clearTimeout(shoppingTimer.current); playLocalComfort("stop"); }, []);
+  useEffect(() => {
+    if (!phoneMode || phoneCamera.status !== "live" || !connectionStates.liquid?.verifiedAt || !phoneCamera.pair) {
+      setLiveVision(""); setVisionWorking(false); return;
+    }
+    let cancelled = false; let working = false;
+    const controller = new AbortController();
+    const analyze = async () => {
+      if (working || cancelled) return;
+      working = true; setVisionWorking(true);
+      try {
+        const response = await fetch(`/api/camera/${phoneCamera.pair!.id}/analyze`, { method: "POST", headers: { Authorization: `Bearer ${phoneCamera.pair!.ownerToken}` }, signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Vision request failed.");
+        if (!cancelled) { setLiveVision(result.description); setVisionError(""); setPulse(["vision"]); setTimeout(() => setPulse([]), 1000); }
+      } catch (reason) { if (!cancelled && !(reason instanceof DOMException && reason.name === "AbortError")) setVisionError(reason instanceof Error ? reason.message : "Vision request failed."); }
+      finally { working = false; if (!cancelled) setVisionWorking(false); }
+    };
+    void analyze();
+    const timer = setInterval(() => void analyze(), 12_000);
+    return () => { cancelled = true; controller.abort(); clearInterval(timer); };
+  }, [phoneMode, phoneCamera.status, phoneCamera.pair?.id, connectionStates.liquid?.verifiedAt]);
 
   useEffect(() => {
     if (phoneMode) {
@@ -165,6 +193,21 @@ function Manager() {
     } catch (reason) { setSessionNote(reason instanceof Error ? reason.message : "The session check failed."); }
     finally { setSessionBusy(false); }
   }
+  async function comfort(action: ComfortAction) {
+    if (comfortWorking) return;
+    setComfortWorking(true);
+    try {
+      if (phoneMode) {
+        if (!phoneCamera.pair || phoneCamera.status !== "live" || !phoneCamera.speakerReady) throw new Error("Enable sound on the connected phone first.");
+        const response = await fetch(`/api/camera/${phoneCamera.pair.id}/action`, { method: "POST", headers: { Authorization: `Bearer ${phoneCamera.pair.ownerToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ type: action }) });
+        if (!response.ok) { const result = await response.json(); throw new Error(result.error || "The phone did not accept the sound action."); }
+      } else playLocalComfort(action);
+      setComfortStatus(action === "stop" ? "Sound stopped" : action === "voice" ? "Speaking a calming phrase" : "Playing a lullaby");
+      setServicePulse(action === "stop" ? null : "speaker");
+      if (action !== "stop") setTimeout(() => setServicePulse(null), 6000);
+    } catch (reason) { setComfortStatus(reason instanceof Error ? reason.message : "Sound action failed."); }
+    finally { setComfortWorking(false); }
+  }
   function previewShopping() {
     clearTimeout(shoppingTimer.current);
     setShoppingPreview("running");
@@ -179,7 +222,8 @@ function Manager() {
   const nimbleWorking = snapshot?.parent_notifications.some(item => item.research_provider === "nimble_live" && item.status === "researching");
   const nodes: { id: string; name: string; note: string; icon: IconName; offline?: boolean }[] = [
     { id: "camera", name: "Camera", note: phoneMode ? phoneCamera.status === "live" ? "Live" : "Connect phone" : "Sample footage", icon: "camera", offline: phoneCamera.status !== "live" },
-    { id: "vision", name: "Vision", note: phoneMode ? "Analysis not connected" : "Sample provider", icon: "eye", offline: phoneMode },
+    { id: "speaker", name: "Speaker", note: phoneMode ? phoneCamera.speakerReady ? "Phone sound ready" : "Enable on phone" : "Computer sound", icon: "speaker", offline: phoneMode && !phoneCamera.speakerReady },
+    { id: "vision", name: "Vision", note: phoneMode ? connectionStates.liquid?.verifiedAt ? "Liquid AI descriptions" : "Connect Liquid AI" : "Sample provider", icon: "eye", offline: phoneMode && !connectionStates.liquid?.verifiedAt },
     { id: "memory", name: "Memory", note: phoneMode ? "No live analysis" : "Current session", icon: "memory", offline: phoneMode },
     { id: "nimble", name: "Nimble", note: nimbleWorking ? "Researching" : nimbleLive ? "Live research" : connectionStates.nimble?.verifiedAt ? "Search tested" : "Not connected", icon: "search", offline: !nimbleLive && !connectionStates.nimble?.verifiedAt },
     { id: "rawtree", name: "RawTree", note: connectionStates.rawtree?.verifiedAt ? "Read access tested" : "Not connected", icon: "memory", offline: !connectionStates.rawtree?.verifiedAt },
@@ -192,7 +236,7 @@ function Manager() {
         <button className={tab === "settings" ? "selected" : ""} onClick={() => configure()}><Icon name="settings" />Settings</button>
       </nav>
       <div className="connection-heading"><h2>Connections</h2><button aria-label="Configure connections" onClick={() => configure()}>+</button></div>
-      <div className="connection-list">{nodes.map(node => <button key={node.id} title={`${node.name} · ${servicePulse === node.id ? "Request in progress" : pulse.includes(node.id) ? "Just updated" : node.note}`} aria-label={`${node.name}: ${node.note}`} onClick={() => node.id === "memory" ? (setTab("overview"), setHistory(true)) : configure("Connections", node.id === "vision" ? "liquid" : node.id)} className={`connection-row ${pulse.includes(node.id) || servicePulse === node.id || (node.id === "nimble" && nimbleWorking) || (node.id === "instacart" && shoppingPreview === "running") ? "working" : ""}`}>
+      <div className="connection-list">{nodes.map(node => <button key={node.id} title={`${node.name} · ${servicePulse === node.id ? "Request in progress" : pulse.includes(node.id) ? "Just updated" : node.note}`} aria-label={`${node.name}: ${node.note}`} onClick={() => node.id === "memory" ? (setTab("overview"), setHistory(true)) : node.id === "speaker" ? (setTab("overview"), document.getElementById("comfort-tools")?.scrollIntoView({ behavior: "smooth" })) : configure("Connections", node.id === "vision" ? "liquid" : node.id)} className={`connection-row ${pulse.includes(node.id) || servicePulse === node.id || (node.id === "nimble" && nimbleWorking) || (node.id === "instacart" && shoppingPreview === "running") ? "working" : ""}`}>
         <Icon name={node.icon} /><span><strong>{node.name}</strong>{node.id === "camera" && phoneCamera.status === "live" && <small>Live</small>}{node.id === "instacart" && shoppingPreview === "running" && <small>Previewing…</small>}</span><i className={node.offline ? "offline" : connected ? "available" : "offline"} />
       </button>)}</div>
       <div className="sidebar-bottom"><span className={`service-dot ${connected ? "online" : ""}`} /><span>{connected ? "Local connection" : "Offline"}</span></div>
@@ -209,7 +253,8 @@ function Manager() {
               {(!phoneMode || playing) && <span className="camera-position">{phoneMode ? "Phone camera" : "Camera 01 · Room view"}</span>}
             </div>
             {!phoneMode && snapshot?.playback.manual_occlusion && <p className="view-uncertain">View blocked · Waiting for fresh evidence</p>}
-            <div className={`observation ${pulse.includes("vision") ? "recent" : ""}`}><Icon name="eye" /><p>{phoneMode ? "Vision analysis is not connected to this camera yet." : observation?.short_description ?? "Waiting for the next observation…"}</p></div>
+            <div className={`observation ${pulse.includes("vision") ? "recent" : ""}`}><Icon name="eye" /><p>{phoneMode ? liveVision || (connectionStates.liquid?.verifiedAt ? visionWorking ? "Liquid AI is analyzing the live view…" : "Waiting for a model description…" : "Connect Liquid AI in Settings to analyze this camera.") : observation?.short_description ?? "Waiting for the next observation…"}</p></div>
+            {phoneMode && visionError && <p className="view-uncertain" role="status">Liquid AI: {visionError}</p>}
             {!phoneMode && snapshot && <details className="room-context"><summary>Room context <span>{snapshot.state.room.stale ? "Needs confirmation" : `${snapshot.state.room.children_in_cribs ?? "—"} in cribs`}</span></summary><p>{snapshot.state.room.uncertainties.join(" ") || "Confirmed from repeated observations."}</p>{snapshot.state.situations.filter(item => item.status !== "resolved").map(item => <p key={item.id}>{words(item.type)} · {words(item.status)}</p>)}<small>{snapshot.state.metrics.frames_sampled} frames · {snapshot.state.metrics.repeated_observations_discarded} repeats discarded · State saved locally</small></details>}
           </section>
           <section className="activity-section" aria-label="Activity">
@@ -222,6 +267,7 @@ function Manager() {
               {activity.slice(0, history ? 50 : 4).map(event => { const copy = eventCopy(event.mutation); return <button className={`activity-event ${selected?.id === event.id ? "is-selected" : ""}`} key={event.id} onClick={() => setSelected(selected?.id === event.id ? null : event)}><span className={`event-dot ${event.mutation.type === "ALERT_EMITTED" ? "attention" : ""}`} /><span><span className="event-meta">{copy.source}<time>{age((snapshot?.playback.current_time ?? 0) - event.video_timestamp)}</time></span><strong>{copy.title}</strong></span><Icon name="arrow" /></button>; })}
             </div>
             {detail && selected && <div className="event-detail"><div className="detail-title"><h3>Why this happened</h3><button aria-label="Close event details" onClick={() => setSelected(null)}><Icon name="close" /></button></div><dl><dt>Evidence</dt><dd>{selected.frame_id ?? "Monitoring rule"} · {time(selected.video_timestamp)}</dd><dt>Decision summary</dt><dd>{detail.detail}</dd><dt>Result</dt><dd>{detail.result}</dd></dl><small>Summary from recorded events, not model reasoning.</small></div>}
+            <div className="comfort-tools" id="comfort-tools"><div className="comfort-heading"><Icon name="speaker" /><strong>Comfort tools</strong><span>Manual demo</span></div><p>Try these when the baby cries. The phone plays sound only after you enable it there.</p><div className="comfort-actions"><button disabled={comfortWorking || (phoneMode && !phoneCamera.speakerReady)} onClick={() => void comfort("lullaby")}>Play lullaby</button><button disabled={comfortWorking || (phoneMode && !phoneCamera.speakerReady)} onClick={() => void comfort("voice")}>Talk to baby</button><button disabled={comfortWorking || (phoneMode && !phoneCamera.speakerReady)} onClick={() => void comfort("stop")}>Stop</button></div>{comfortStatus && <small role="status">{comfortStatus}</small>}</div>
             {activity.length > 4 && <button className="quiet-link history-link" onClick={() => setHistory(!history)}>{history ? "Show recent activity" : `View all ${activity.length} events`}<Icon name="arrow" /></button>}
           </section>
         </div>

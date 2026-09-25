@@ -28,7 +28,7 @@ export function localModelEndpoint(value: string): string {
   if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname.replace(/\/$/, "") !== "/v1") throw new Error("Use a local model endpoint such as http://localhost:8080/v1.");
   return url.href.replace(/\/$/, "");
 }
-export function createManagerRouter(fetcher: typeof fetch = fetch, onNimbleKey?: (key: string | null) => void) {
+export function createManagerRouter(fetcher: typeof fetch = fetch, onNimbleKey?: (key: string | null) => void, onLiquidEndpoint?: (endpoint: string | null) => void) {
   const router = Router();
   const configs: Partial<Record<Provider, Config>> = {};
   let seedBusy = false;
@@ -64,6 +64,7 @@ export function createManagerRouter(fetcher: typeof fetch = fetch, onNimbleKey?:
     const { provider, apiKey, database, endpoint } = parsed.data;
     delete configs[provider];
     if (provider === "nimble") onNimbleKey?.(null);
+    if (provider === "liquid") onLiquidEndpoint?.(null);
     try {
       let message = "";
       let config: Config;
@@ -91,6 +92,7 @@ export function createManagerRouter(fetcher: typeof fetch = fetch, onNimbleKey?:
       }
       configs[provider] = { ...config, verifiedAt: new Date().toISOString(), message };
       if (provider === "nimble") onNimbleKey?.(apiKey!);
+      if (provider === "liquid") onLiquidEndpoint?.(config.endpoint!);
       return response.json({ connections: states(), message });
     } catch (reason) { return response.status(400).json({ error: errorMessage(reason), connections: states() }); }
   });
@@ -99,6 +101,7 @@ export function createManagerRouter(fetcher: typeof fetch = fetch, onNimbleKey?:
     if (!parsed.success) return response.status(400).json({ error: "Choose a provider." });
     delete configs[parsed.data];
     if (parsed.data === "nimble") onNimbleKey?.(null);
+    if (parsed.data === "liquid") onLiquidEndpoint?.(null);
     return response.json({ connections: states(), message: "Connection cleared from server memory." });
   });
   router.post("/seed", async (_request, response) => {
@@ -107,7 +110,11 @@ export function createManagerRouter(fetcher: typeof fetch = fetch, onNimbleKey?:
     try {
       const existing = new Set<string>();
       let exists = true;
-      try { await rawRequest("tables/family_demo_events"); } catch (reason) { if ((reason as { status?: number }).status === 404) exists = false; else throw reason; }
+      try { await rawRequest("tables/family_demo_events"); } catch (reason) {
+        // RawTree reports a missing table as HTTP 400 on this read endpoint.
+        if ([400, 404].includes((reason as { status?: number }).status ?? 0)) exists = false;
+        else throw reason;
+      }
       if (exists) {
         const result = await rawRequest("query", { sql: `SELECT DISTINCT event_id FROM family_demo_events WHERE dataset_id = '${demoDataset}' LIMIT 100` });
         if (!Array.isArray(result.data) || result.data.length >= 100) throw new Error("RawTree returned an incomplete seed history; no data was written.");
