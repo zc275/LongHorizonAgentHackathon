@@ -9,6 +9,7 @@ import {
 } from "./monitoring-engine.js";
 import type { FrameSample, VisualObservationProvider } from "./providers/visual-observation-provider.js";
 import type { AlertEnricher } from "./alert-enrichment.js";
+import { buildTelemetryEvents, type TelemetrySink } from "./tinybird-telemetry.js";
 
 export interface StoredRuntime {
   state: MonitoringEngineState;
@@ -59,7 +60,8 @@ export class SessionRuntime extends EventEmitter {
     readonly sampleInterval = 2,
     readonly duration = 100,
     private readonly persistence?: RuntimePersistence,
-    private readonly alertEnricher?: AlertEnricher
+    private readonly alertEnricher?: AlertEnricher,
+    private readonly telemetrySink?: TelemetrySink
   ) {
     super();
     this.state = createMonitoringState(id);
@@ -82,7 +84,8 @@ export class SessionRuntime extends EventEmitter {
       latest_mutations: this.latestMutations,
       parent_notifications: this.parentNotifications,
       integrations: {
-        nimble: { mode: this.alertEnricher?.mode ?? "demo_fallback" }
+        nimble: { mode: this.alertEnricher?.mode ?? "demo_fallback" },
+        tinybird: { mode: this.telemetrySink?.mode ?? "disabled" }
       }
     };
   }
@@ -99,6 +102,7 @@ export class SessionRuntime extends EventEmitter {
     }
 
     this.processing = true;
+    const processingStartedAt = Date.now();
     try {
       const frame = this.frameAt(timestamp);
       const observation = await this.provider.observe(frame);
@@ -116,6 +120,22 @@ export class SessionRuntime extends EventEmitter {
         });
       }
       this.persistence?.recordSample(this.id, this.provider.name, observation, result.mutations, this.state, this.events);
+      if (this.telemetrySink) {
+        const telemetryEvents = buildTelemetryEvents({
+          sessionId: this.id,
+          provider: this.provider.name,
+          observation,
+          mutations: result.mutations,
+          state: this.state,
+          processingLatencyMs: Date.now() - processingStartedAt
+        });
+        void this.telemetrySink.send(telemetryEvents)
+          .then(() => this.emit("update", this.snapshot()))
+          .catch((error: unknown) => {
+            console.warn("Tinybird telemetry delivery failed:", error instanceof Error ? error.message : "unknown error");
+            this.emit("update", this.snapshot());
+          });
+      }
       for (const mutation of result.mutations) {
         if (mutation.type === "ALERT_EMITTED") this.beginParentNotification(mutation.situationId, timestamp);
       }

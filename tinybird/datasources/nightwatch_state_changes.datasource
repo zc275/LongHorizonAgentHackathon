@@ -1,0 +1,20 @@
+DESCRIPTION >
+    Append-only Nightwatch observation and state-mutation telemetry.
+
+SCHEMA >
+    `event_id` String `json:$.event_id`,
+    `event_time` DateTime64(3) `json:$.event_time`,
+    `session_id` String `json:$.session_id`,
+    `event_type` LowCardinality(String) `json:$.event_type`,
+    `video_timestamp` Float64 `json:$.video_timestamp`,
+    `frame_id` Nullable(String) `json:$.frame_id`,
+    `situation_id` Nullable(String) `json:$.situation_id`,
+    `state_version` UInt64 `json:$.state_version`,
+    `provider` LowCardinality(String) `json:$.provider`,
+    `processing_latency_ms` UInt32 `json:$.processing_latency_ms`,
+    `working_state_bytes` UInt32 `json:$.working_state_bytes`,
+    `payload` String `json:$.payload`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(event_time)"
+ENGINE_SORTING_KEY "session_id, event_time, state_version"

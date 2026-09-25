@@ -8,10 +8,15 @@ import { MockVisionProvider } from "./providers/mock-vision-provider.js";
 import { SessionRuntime } from "./session-runtime.js";
 import { createManagerRouter } from "./manager-api.js";
 import { SqliteSessionPersistence } from "./persistence.js";
+<<<<<<< HEAD
 import { createAlertEnricher, NimbleSafetyResearchProvider, type AlertEnricher } from "./alert-enrichment.js";
 import { createCameraService } from "./camera-api.js";
 import { createCameraTunnel } from "./camera-tunnel.js";
 import { resolve } from "node:path";
+=======
+import { createAlertEnricher } from "./alert-enrichment.js";
+import { createTelemetrySink } from "./tinybird-telemetry.js";
+>>>>>>> 2ec4e77 (vendor integration)
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -49,6 +54,11 @@ process.once("SIGINT", () => { closeCamera(); process.exit(0); });
 
 const sessions = new Map<string, SessionRuntime>();
 const persistence = new SqliteSessionPersistence();
+<<<<<<< HEAD
+=======
+const alertEnricher = createAlertEnricher();
+const telemetrySink = createTelemetrySink();
+>>>>>>> 2ec4e77 (vendor integration)
 
 function runtimeFor(id: string): SessionRuntime | undefined {
   return sessions.get(id);
@@ -70,7 +80,7 @@ app.get("/api/health", (_request, response) => {
 
 app.post("/api/sessions", (_request, response) => {
   const id = randomUUID();
-  const runtime = new SessionRuntime(id, new MockVisionProvider(), 2, 100, persistence, alertEnricher);
+  const runtime = new SessionRuntime(id, new MockVisionProvider(), 2, 100, persistence, alertEnricher, telemetrySink);
   sessions.set(id, runtime);
   response.status(201).json(runtime.snapshot());
 });

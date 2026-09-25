@@ -44,5 +44,6 @@ export interface RuntimeSnapshot {
   parent_notifications: ParentNotification[];
   integrations: {
     nimble: { mode: ParentNotification["research_provider"] };
+    tinybird: { mode: "tinybird_live" | "tinybird_ready" | "tinybird_error" | "disabled" };
   };
 }
