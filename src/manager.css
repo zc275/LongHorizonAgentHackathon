@@ -35,3 +35,17 @@
 @media(max-width:1150px){.manager{grid-template-columns:175px minmax(0,1fr)}.main-content{padding:42px 28px}.wordmark{font-size:17px;padding-inline:5px}.workspace-grid{gap:26px;grid-template-columns:minmax(0,1.65fr) minmax(210px,1fr)}.source-label{font-size:9px}}
 @media(max-width:850px){.workspace-grid{grid-template-columns:1fr}.main-content{padding:34px 26px}.activity-section{margin-top:12px}.activity-list{max-height:340px}.section-heading{margin-bottom:16px}}
 @media(max-width:600px){.manager{display:block}.main-content{padding:28px 22px}.sidebar{padding:16px 20px}.source-label{font-size:9px}.camera-heading{font-size:19px}.camera-stage{aspect-ratio:16/10}.activity-section{margin-top:8px}.section-heading{margin-bottom:14px}}
+
+/* The feed is a continuous camera surface, not a media player. */
+.main-nav{margin-top:0}
+.sidebar{padding-top:52px}
+.feed-status{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:11px}
+.feed-status i{width:5px;height:5px;border-radius:50%;background:#b6bac7}
+.feed-status.is-observing{color:#567b6d}
+.feed-status.is-observing i{background:#6d9987}
+.observer-stage{aspect-ratio:16/9}
+.camera-position{position:absolute;left:16px;bottom:14px;font-size:10px;color:#fff;background:#28302b99;padding:5px 8px;border-radius:5px}
+.observation{padding-top:18px;padding-bottom:5px}
+.feed-source{font-size:9px;color:var(--muted);margin:8px 0 0 27px}
+@media(max-width:1150px){.sidebar{padding-top:31px}}
+@media(max-width:600px){.sidebar{padding-top:16px}.observer-stage{aspect-ratio:16/9}}

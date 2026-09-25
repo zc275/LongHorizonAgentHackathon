@@ -6,7 +6,7 @@ The existing monitor remains at `/`. The manager is a separate light interface o
 
 ## What works now
 
-- Recorded video, playback, seeking, live session events and situation state.
+- A continuous camera-style preview: sample footage starts automatically, repeats, and updates session events and situation state. The manager has no playback controls; the original monitor at `/` retains them. Each sample replay starts a fresh fixture cycle.
 - Settings → Connections: guided setup and real provider connection tests.
 - RawTree: selected-database read test, loading 12 fictional household events and reading them back.
 - Nimble: one public search to verify the key. This may consume account credits.
