@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { MockVisionProvider } from "./providers/mock-vision-provider.js";
 import { SqliteSessionPersistence } from "./persistence.js";
@@ -113,5 +113,29 @@ describe("mock session runtime", () => {
       research_summary: "Vetted safety guidance found."
     });
     expect(notifications[0].sources).toHaveLength(1);
+  });
+
+  it("keeps the in-app alert usable when safety research stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      const stalledEnricher: AlertEnricher = {
+        mode: "nimble_live",
+        enrich: () => new Promise(() => {})
+      };
+      const runtime = new SessionRuntime("stalled-research-test", new MockVisionProvider(), 2, 100, undefined, stalledEnricher);
+      await runtime.processUntil(30);
+      expect(runtime.snapshot().parent_notifications[0]).toMatchObject({
+        status: "researching",
+        message: "Please check the nursery now. Safety resources are loading…"
+      });
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(runtime.snapshot().parent_notifications[0]).toMatchObject({
+        status: "sent",
+        research_summary: "The parent alert was delivered, but the live Nimble lookup could not complete."
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

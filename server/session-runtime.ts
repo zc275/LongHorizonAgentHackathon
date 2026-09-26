@@ -308,13 +308,21 @@ export class SessionRuntime extends EventEmitter {
       channel: "in_app_demo",
       research_provider: this.alertEnricher.mode,
       subject: "NurserAI: check the nursery",
-      message: "A concerning situation was confirmed. Preparing a parent message and safety resources…",
+      message: "Please check the nursery now. Safety resources are loading…",
       research_summary: null,
       sources: []
     };
     this.parentNotifications = [pending, ...this.parentNotifications];
 
-    void this.alertEnricher.enrich({ sessionId: this.id, situation, videoTimestamp })
+    let researchTimeout: NodeJS.Timeout | undefined;
+    const research = Promise.race([
+      this.alertEnricher.enrich({ sessionId: this.id, situation, videoTimestamp }),
+      new Promise<never>((_resolve, reject) => {
+        researchTimeout = setTimeout(() => reject(new Error("Safety research timed out")), 10_000);
+      })
+    ]);
+
+    void research
       .then((enrichment) => {
         if (generation !== this.notificationGeneration) return;
         this.replaceNotification(pending.id, { ...pending, ...enrichment, status: "sent" });
@@ -328,7 +336,8 @@ export class SessionRuntime extends EventEmitter {
           research_summary: "The parent alert was delivered, but the live Nimble lookup could not complete.",
           sources: []
         });
-      });
+      })
+      .finally(() => { if (researchTimeout) clearTimeout(researchTimeout); });
   }
 
   private replaceNotification(id: string, replacement: ParentNotification): void {

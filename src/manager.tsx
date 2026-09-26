@@ -78,7 +78,12 @@ function Manager() {
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [retry, setRetry] = useState(0);
 
-  useEffect(() => { void managerApi<ConnectionStates>("connections").then(setConnectionStates).catch(() => {}); }, []);
+  useEffect(() => {
+    const refresh = () => { void managerApi<ConnectionStates>("connections").then(setConnectionStates).catch(() => {}); };
+    refresh();
+    const timer = setInterval(refresh, 5_000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => () => { clearTimeout(shoppingTimer.current); playLocalComfort("stop"); }, []);
   useEffect(() => {
     if (!phoneMode || phoneCamera.status !== "live" || !connectionStates.liquid?.verifiedAt || !phoneCamera.pair) {
@@ -109,7 +114,12 @@ function Manager() {
     }
     let cancelled = false;
     let stream: EventSource | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let requestNumber = 0;
+    const reconnectSoon = () => {
+      if (cancelled || retryTimer) return;
+      retryTimer = setTimeout(() => { retryTimer = undefined; setRetry(value => value + 1); }, 1500);
+    };
     setError("");
     setFeedStatus("connecting");
     api<RuntimeSnapshot>("/api/sessions", {}).then(initial => {
@@ -118,6 +128,30 @@ function Manager() {
       setSnapshot(initial);
       let starting = false;
       const camera = video.current;
+      const openStream = () => {
+        if (stream) return;
+        stream = new EventSource(`/api/sessions/${initial.state.session_id}/stream`);
+        stream.addEventListener("state", event => {
+          if (cancelled) return;
+          const next = JSON.parse((event as MessageEvent).data) as RuntimeSnapshot;
+          setSnapshot(next);
+          setConnected(true);
+          if (next.playback.status === "playing" && !camera?.paused) setFeedStatus("observing");
+          const frame = next.latest_observation?.frame_id ?? "";
+          if (frame && frame !== received.current) {
+            received.current = frame;
+            setPulse(["vision", "rules", ...(next.latest_mutations.length ? ["memory"] : [])]);
+            clearTimeout(pulseTimer.current);
+            pulseTimer.current = setTimeout(() => setPulse([]), 1100);
+          }
+          if (next.playback.status === "complete") restartFeed.current();
+          const request = ++requestNumber;
+          void api<{ events: TimelineEvent[] }>(`/api/sessions/${initial.state.session_id}/events`).then(result => {
+            if (!cancelled && request === requestNumber) setEvents(result.events);
+          }).catch(reason => { if (!cancelled) { setFeedStatus("unavailable"); setError(String(reason.message)); reconnectSoon(); } });
+        });
+        stream.onerror = () => { setConnected(false); setFeedStatus("unavailable"); reconnectSoon(); };
+      };
       const startFeed = async (restart = false) => {
         if (cancelled || starting || !camera) return;
         starting = true;
@@ -130,50 +164,37 @@ function Manager() {
             setEvents([]);
             setSelected(null);
           }
+          camera.pause();
           camera.currentTime = 0;
-          await camera.play();
-          if (cancelled) { camera.pause(); return; }
           const next = await api<RuntimeSnapshot>(`/api/sessions/${initial.state.session_id}/start`, { speed: 1 });
           if (cancelled) {
-            camera.pause();
             await api(`/api/sessions/${initial.state.session_id}/pause`, {});
             return;
           }
+          await camera.play();
+          if (cancelled) { camera.pause(); return; }
           setSnapshot(next);
           setFeedStatus("observing");
-        } catch {
+          setError("");
+          openStream();
+        } catch (reason) {
           camera.pause();
+          void api(`/api/sessions/${initial.state.session_id}/pause`, {}).catch(() => {});
           if (!cancelled) {
             setFeedStatus("unavailable");
-            setError("Camera preview could not start. Reconnect to try again.");
+            if (reason instanceof DOMException && reason.name === "NotAllowedError") {
+              setError("Click Start preview to allow video playback in this browser.");
+            } else {
+              setError("Camera preview interrupted. Reconnecting…");
+              reconnectSoon();
+            }
           }
         } finally { starting = false; }
       };
       restartFeed.current = () => { void startFeed(true); };
-      stream = new EventSource(`/api/sessions/${session.current}/stream`);
-      stream.addEventListener("state", event => {
-        if (cancelled) return;
-        const next = JSON.parse((event as MessageEvent).data) as RuntimeSnapshot;
-        setSnapshot(next);
-        setConnected(true);
-        if (next.playback.status === "playing" && !camera?.paused) setFeedStatus("observing");
-        const frame = next.latest_observation?.frame_id ?? "";
-        if (frame && frame !== received.current) {
-          received.current = frame;
-          setPulse(["vision", "rules", ...(next.latest_mutations.length ? ["memory"] : [])]);
-          clearTimeout(pulseTimer.current);
-          pulseTimer.current = setTimeout(() => setPulse([]), 1100);
-        }
-        if (next.playback.status === "complete") restartFeed.current();
-        const request = ++requestNumber;
-        void api<{ events: TimelineEvent[] }>(`/api/sessions/${session.current}/events`).then(result => {
-          if (!cancelled && request === requestNumber) setEvents(result.events);
-        }).catch(reason => { if (!cancelled) { setFeedStatus("unavailable"); setError(String(reason.message)); } });
-      });
-      stream.onerror = () => { setConnected(false); setFeedStatus("unavailable"); };
       void startFeed();
-    }).catch(reason => { if (!cancelled) { setFeedStatus("unavailable"); setError(String(reason.message)); } });
-    return () => { cancelled = true; restartFeed.current = () => {}; video.current?.pause(); stream?.close(); clearTimeout(pulseTimer.current); if (session.current) void api(`/api/sessions/${session.current}/pause`, {}).catch(() => {}); };
+    }).catch(reason => { if (!cancelled) { setFeedStatus("unavailable"); setError(String(reason.message)); reconnectSoon(); } });
+    return () => { cancelled = true; restartFeed.current = () => {}; video.current?.pause(); stream?.close(); clearTimeout(retryTimer); clearTimeout(pulseTimer.current); if (session.current) void api(`/api/sessions/${session.current}/pause`, {}).catch(() => {}); };
   }, [retry, phoneMode]);
 
   function configure(section = "Connections", provider?: string) { setConnectionFocus(provider ? { id: provider } : null); setSettingsTab(section); setTab("settings"); }
@@ -242,7 +263,7 @@ function Manager() {
       <div className="sidebar-bottom"><span className={`service-dot ${connected ? "online" : ""}`} /><span>{connected ? "Local connection" : "Offline"}</span></div>
     </aside>
     <main className="main-content">
-      {error && <div className="error-note" role="alert">{error}<button onClick={() => { setConnected(false); setRetry(value => value + 1); }}>Reconnect</button></div>}
+      {error && <div className="error-note" role="alert">{error}<button onClick={() => { setConnected(false); setRetry(value => value + 1); }}>{error.startsWith("Click Start preview") ? "Start preview" : "Reconnect"}</button></div>}
       <div hidden={tab !== "overview"}>
         <div className="workspace-grid">
           <section className="camera-section" aria-label="Nursery camera">
@@ -284,4 +305,5 @@ function Manager() {
     </main>
   </div>;
 }
-createRoot(document.getElementById("root")!).render(<Manager />);
+const managerWindow = window as Window & { __nurserAiManagerRoot?: ReturnType<typeof createRoot> };
+(managerWindow.__nurserAiManagerRoot ??= createRoot(document.getElementById("root")!)).render(<Manager />);
