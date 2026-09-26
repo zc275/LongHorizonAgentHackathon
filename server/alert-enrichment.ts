@@ -28,7 +28,7 @@ const fallbackSources: ResearchSource[] = [
 
 function parentMessage(context: AlertContext): string {
   const seconds = Math.round(context.videoTimestamp);
-  return `Nightwatch observed a child outside a crib for the configured alert period at ${seconds}s. Please check the nursery now. The links below are general safety guidance, not a diagnosis.`;
+  return `NurserAI observed a child outside a crib for the configured alert period at ${seconds}s. Please check the nursery now. The links below are general safety guidance, not a diagnosis.`;
 }
 
 export class DemoSafetyResearchProvider implements AlertEnricher {
@@ -37,7 +37,7 @@ export class DemoSafetyResearchProvider implements AlertEnricher {
   async enrich(context: AlertContext) {
     return {
       message: parentMessage(context),
-      research_summary: "Live Nimble search is not configured, so Nightwatch attached a small, preselected set of authoritative safety resources.",
+      research_summary: "Live Nimble search is not configured, so NurserAI attached a small, preselected set of authoritative safety resources.",
       sources: fallbackSources
     };
   }

@@ -18,7 +18,7 @@ export const requireLocalManager: RequestHandler = (request, response, next) => 
   const localHost = /^(localhost|127\.0\.0\.1|\[::1\]):(3001|5173)$/.test(host);
   const localOrigin = !origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):(3001|5173)$/.test(origin);
   if (!localHost || !localOrigin || request.headers["x-nightwatch-local"] !== "1") {
-    response.status(403).json({ error: "Open Settings from the local Nightwatch app." });
+    response.status(403).json({ error: "Open Settings from the local NurserAI app." });
     return;
   }
   next();

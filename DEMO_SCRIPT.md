@@ -1,4 +1,4 @@
-# Nightwatch Three-Minute Demo
+# NurserAI Three-Minute Demo
 
 ## Before presenting
 
@@ -9,7 +9,7 @@
 
 ## 0:00–0:30 — State the idea
 
-Explain that Nightwatch does not keep every frame in its working context. It samples the video, validates visible facts, confirms changes across observations, and maintains a small mutable room state. The complete observation and mutation history remains available for audit.
+Explain that NurserAI does not keep every frame in its working context. It samples the video, validates visible facts, confirms changes across observations, and maintains a small mutable room state. The complete observation and mutation history remains available for audit.
 
 Point out the four main areas: video, canonical room state, open situations, and the event journal with compression metrics.
 

@@ -1,4 +1,4 @@
-# Nightwatch Nursery Monitor
+# NurserAI Monitor
 
 A compact, stateful activity journal for long-running nursery video. The application is a hackathon demonstration and is not a certified safety or medical device.
 

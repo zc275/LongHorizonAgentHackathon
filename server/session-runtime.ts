@@ -307,7 +307,7 @@ export class SessionRuntime extends EventEmitter {
       status: "researching",
       channel: "in_app_demo",
       research_provider: this.alertEnricher.mode,
-      subject: "Nightwatch: check the nursery",
+      subject: "NurserAI: check the nursery",
       message: "A concerning situation was confirmed. Preparing a parent message and safety resources…",
       research_summary: null,
       sources: []
@@ -324,7 +324,7 @@ export class SessionRuntime extends EventEmitter {
         this.replaceNotification(pending.id, {
           ...pending,
           status: "sent",
-          message: `Nightwatch confirmed a concerning nursery situation at ${Math.round(videoTimestamp)}s. Please check the nursery now. Safety research was temporarily unavailable.`,
+          message: `NurserAI confirmed a concerning nursery situation at ${Math.round(videoTimestamp)}s. Please check the nursery now. Safety research was temporarily unavailable.`,
           research_summary: "The parent alert was delivered, but the live Nimble lookup could not complete.",
           sources: []
         });

@@ -1,4 +1,4 @@
-# Nightwatch Implementation Phases
+# NurserAI Implementation Phases
 
 Target: a polished, complete mock-driven hackathon demo. Preserve the deterministic monitoring flow before adding external model or analytics integrations.
 

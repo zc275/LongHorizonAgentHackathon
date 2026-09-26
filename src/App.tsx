@@ -269,7 +269,7 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-mark">N</div>
-        <div className="brand-copy"><p className="eyebrow">Long-horizon visual agent</p><h1>Nightwatch</h1></div>
+        <div className="brand-copy"><p className="eyebrow">Long-horizon visual agent</p><h1>NurserAI</h1></div>
         <div className="mode-chip"><span /> Demo mode · Mock vision</div>
         <div className={`nimble-chip ${snapshot?.integrations.nimble.mode === "nimble_live" ? "live" : ""}`}>NIMBLE · {snapshot?.integrations.nimble.mode === "nimble_live" ? "LIVE" : "READY"}</div>
         <div className={`tinybird-chip ${snapshot?.integrations.tinybird.mode === "tinybird_live" ? "live" : snapshot?.integrations.tinybird.mode === "tinybird_error" ? "error" : ""}`}>TINYBIRD · {snapshot?.integrations.tinybird.mode === "tinybird_live" ? "LIVE" : snapshot?.integrations.tinybird.mode === "tinybird_error" ? "ERROR" : snapshot?.integrations.tinybird.mode === "tinybird_ready" ? "READY" : "OFF"}</div>

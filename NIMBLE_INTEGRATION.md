@@ -1,6 +1,6 @@
 # Nimble Alert Research Architecture
 
-Nightwatch uses Nimble after the monitoring engine has confirmed a concerning situation. The deterministic engine remains responsible for the alert decision; web research cannot create, delay, or suppress an alert.
+NurserAI uses Nimble after the monitoring engine has confirmed a concerning situation. The deterministic engine remains responsible for the alert decision; web research cannot create, delay, or suppress an alert.
 
 ```mermaid
 flowchart LR

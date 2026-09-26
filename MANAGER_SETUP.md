@@ -1,4 +1,4 @@
-# Nightwatch manager
+# NurserAI manager
 
 Open **http://localhost:5173/manager.html** after `npm run dev`.
 

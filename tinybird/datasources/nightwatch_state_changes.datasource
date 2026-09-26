@@ -1,5 +1,5 @@
 DESCRIPTION >
-    Append-only Nightwatch observation and state-mutation telemetry.
+    Append-only NurserAI observation and state-mutation telemetry.
 
 SCHEMA >
     `event_id` String `json:$.event_id`,
